@@ -12,7 +12,7 @@ contract RockPaperScissorsFactory {
     rockPaperScissorsImplementation = _address;
   }
 
-  function createRockPaperScissorsInstance(address _playerA, address _playerB) external returns (address) {
+  function createRockPaperScissorsInstance() external returns (address) {
     address clone = Clones.clone(rockPaperScissorsImplementation);
     // RockPaperScissorsInstance(clone).initialize(_playerA, _playerB);
     return clone;
