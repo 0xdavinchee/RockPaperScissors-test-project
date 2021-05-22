@@ -2,11 +2,11 @@
 pragma solidity ^0.7.0;
 
 import "hardhat/console.sol";
-import "@openzeppelin/contracts/proxy/utils/Initializable.sol";
+import "@openzeppelin/contracts/proxy/Initializable.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 contract RockPaperScissorsInstance is Initializable {
-
-  function initialize(address _playerA, address _playerB) public initializer {
+  function initialize(address _playerA, address _playerB, IERC20 _token) public initializer {
     // TODO: constructor, should initialize the contract and other necessary state variables
 
   }
@@ -21,7 +21,7 @@ contract RockPaperScissorsInstance is Initializable {
     // this must be obfuscated, but then retrievable by the code later when the game has ended
   }
 
-  function endGame() public returns (address) {
+  function endGame() internal returns (address) {
     // TODO: a function to end the game, this will be called after submitMove if the previous player has made a move
   }
 }
