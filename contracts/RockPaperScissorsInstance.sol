@@ -6,17 +6,21 @@ import "@openzeppelin/contracts/proxy/Initializable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 contract RockPaperScissorsInstance is Initializable {
+  struct PlayerData {
+    bool hasDeposited;
+    bool hasRevealedMove;
+    bytes32 move;
+  }
+
   address public playerA;
   address public playerB;
   bool public isActive;
   uint public betAmount;
   address public winner;
 
-  bytes32 public playerAMove;
-  bytes32 public playerBMove;
   IERC20 public token;
 
-  mapping (address => bool) public playerHasDepositedMap;
+  mapping (address => PlayerData) public playerDataMap;
 
   // TODO: Maybe have events so that client can see all RPS games.
 
@@ -64,30 +68,33 @@ contract RockPaperScissorsInstance is Initializable {
   }
 
   /**
-   * @dev Submits a move (Rock, Paper or Scissors), if both users have submitted a move,
-   * {endGameOrResetMoves} is called to either end the game (if somemone has won) or
-   * reset both players' moves, if it was a tie.
+   * @dev Submits a move that is encrypted using a randomized salt on the client.
    *
    * Requirements:
    * 
-   * - the caller must provide a valid input.
    * - the caller cannot change their move once they've submitted it.
    */
-  function submitMove(uint move) public isValidPlayer(msg.sender) {
-    require(move <= 2, "You must select Rock (0), Paper (1) or Scissors (2)");
+  function submitMove(bytes32 _move) public isValidPlayer(msg.sender) {
     require(
-      msg.sender == playerA && playerAMove[0] != 0
-      || msg.sender == playerB && playerBMove[0] != 0,
-      "You cannot change your move.");
-    bytes32 hashedMove = keccakUint(move);
+      msg.sender == playerA && playerDataMap[playerA].move[0] != 0
+      || msg.sender == playerB && playerDataMap[playerB].move[0] != 0,
+      "You cannot change your move."
+    );
     msg.sender == playerA
-      ? playerAMove = hashedMove
-      : playerBMove = hashedMove;
+      ? playerDataMap[playerA].move = _move
+      : playerDataMap[playerB].move = _move;
+  }
 
-    if (playerAMove[0] != 0 && playerBMove[0] != 0) {
-      address winningAddress = getWinningAddress();
-      endGameOrResetMoves(winningAddress);
-    }
+  function revealMove() public isValidPlayer(msg.sender) {
+    require(
+      playerDataMap[playerA].move[0] != 0
+      && playerDataMap[playerB].move[0] != 0,
+      "Both players have yet to make a move."
+    );
+    // if (playerAMove[0] != 0 && playerBMove[0] != 0) {
+    //   address winningAddress = getWinningAddress();
+    //   endGameOrResetMoves(winningAddress);
+    // }
   }
 
   /**
@@ -114,25 +121,25 @@ contract RockPaperScissorsInstance is Initializable {
    * - this contract requires allowance to transfer `_depositBetAmount` tokens if `betAmount` > 0.
    */
   function depositBet(uint _depositBetAmount) public isValidPlayer(msg.sender) {
-    require(playerHasDepositedMap[msg.sender] == false, "You have already deposited.");
+    require(playerDataMap[msg.sender].hasDeposited == false, "You have already deposited.");
     require(
       _depositBetAmount == betAmount
-      || (playerHasDepositedMap[playerA] == false
-      && playerHasDepositedMap[playerB] == false), "You've submitted the incorrect bet amount.");
+      || (playerDataMap[playerA].hasDeposited == false
+      && playerDataMap[playerB].hasDeposited == false), "You've submitted the incorrect bet amount.");
 
     if (betAmount == 0) {
-      playerHasDepositedMap[msg.sender] = true;
+      playerDataMap[msg.sender].hasDeposited = true;
     }
 
     if (betAmount > 0) {
       require(token.allowance(msg.sender, address(this)) == _depositBetAmount, "You don't have allowance.");
       bool success = token.transferFrom(msg.sender, address(this), _depositBetAmount);
       if (success) {
-        playerHasDepositedMap[msg.sender] = true;
+        playerDataMap[msg.sender].hasDeposited = true;
       }
     }
 
-    if (playerHasDepositedMap[playerA] == true && playerHasDepositedMap[playerB] == true) {
+    if (playerDataMap[playerA].hasDeposited == true && playerDataMap[playerB].hasDeposited == true) {
       isActive = true;
     }
   }
@@ -148,10 +155,10 @@ contract RockPaperScissorsInstance is Initializable {
   function startRematch(uint _betAmount) public {
     require(token.balanceOf(address(this)) == 0, "There are still funds to withdraw.");
     require(winner != address(0) && isActive == false, "The game hasn't finished yet.");
-    delete playerAMove;
-    delete playerBMove;
-    playerHasDepositedMap[playerA] = false;
-    playerHasDepositedMap[playerB] = false;
+    delete playerDataMap[playerA].move;
+    delete playerDataMap[playerB].move;
+    playerDataMap[playerA].hasDeposited = false;
+    playerDataMap[playerB].hasDeposited = false;
     betAmount = _betAmount;
     winner = address(0);
   }
@@ -167,7 +174,7 @@ contract RockPaperScissorsInstance is Initializable {
   function startRematchWithWinnings() public {
     require(msg.sender == winner, "You must be the winner to start a rematch with the winnings.");
     startRematch(token.balanceOf(address(this)));
-    playerHasDepositedMap[msg.sender] = true;
+    playerDataMap[msg.sender].hasDeposited = true;
   }
 
   /**
@@ -180,14 +187,14 @@ contract RockPaperScissorsInstance is Initializable {
    */
   function withdrawBeforeGameStarts() public {
     require(isActive == false, "You can't withdraw once the game has started.");
-    require(playerHasDepositedMap[msg.sender] == true, "You haven't deposited yet.");
+    require(playerDataMap[msg.sender].hasDeposited == true, "You haven't deposited yet.");
     uint contractTokenBalance = token.balanceOf(address(this));
     require(contractTokenBalance > 0, "There is nothing to withdraw");
     
     token.approve(msg.sender, contractTokenBalance);
     bool success = token.transferFrom(address(this), msg.sender, contractTokenBalance);
     if (success) {
-      playerHasDepositedMap[msg.sender] = false;
+      playerDataMap[msg.sender].hasDeposited = false;
     }
   }
 
@@ -199,13 +206,13 @@ contract RockPaperScissorsInstance is Initializable {
     bytes32 hashedPaper = keccakUint(1);
     bytes32 hashedScissors = keccakUint(2);
     
-    if (playerAMove == playerBMove) {
+    if (playerDataMap[playerA].move == playerDataMap[playerB].move) {
       return address(0);
     }
 
-    if (playerAMove == hashedRock && playerBMove == hashedScissors
-      || playerAMove == hashedPaper && playerBMove == hashedRock
-      || playerAMove == hashedScissors && playerBMove == hashedPaper) {
+    if (playerDataMap[playerA].move == hashedRock && playerDataMap[playerB].move == hashedScissors
+      || playerDataMap[playerA].move == hashedPaper && playerDataMap[playerB].move == hashedRock
+      || playerDataMap[playerA].move == hashedScissors && playerDataMap[playerB].move == hashedPaper) {
         return playerA;
     } else {
       return playerB;
@@ -218,8 +225,8 @@ contract RockPaperScissorsInstance is Initializable {
    */
   function endGameOrResetMoves(address _winningAddress) internal {
     if (_winningAddress == address(0)) {
-      delete playerAMove;
-      delete playerBMove;
+      delete playerDataMap[playerA].move;
+      delete playerDataMap[playerB].move;
     }
 
     if (_winningAddress != address(0)) {
