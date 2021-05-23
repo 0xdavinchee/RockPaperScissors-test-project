@@ -29,8 +29,7 @@ contract RockPaperScissorsInstance is Initializable {
 
   mapping (address => PlayerData) public playerDataMap;
 
-  event PlayerEnrolled(address _player);
-  event GameCreated(address _playerA, address _tokenAddress, uint _betAmount);
+  event GameInitialized(address _playerA, address _tokenAddress, uint _betAmount);
   event GameStarted(address _playerA, address _playerB, uint _betAmount);
   event GameOutcome(address _winner, bytes32 _winningMove);
   event DepositCompleted(address _player, uint _amount);
@@ -39,18 +38,8 @@ contract RockPaperScissorsInstance is Initializable {
   event WithdrawFunds(address _player, uint _amount, WithdrawalReason _reason);
   event RematchRequested(address _requester, uint _betAmount);
 
-  modifier isNewPlayer() {
-    require(msg.sender != playerA && msg.sender != playerB, "You are already a part of this game.");
-    _;
-  }
-
   modifier isValidPlayer(address _address) {
     require(msg.sender == playerA || msg.sender == playerB, "You are not a part of this game.");
-    _;
-  }
-  
-  modifier isOpenGame() {
-    require(playerB == address(0), "This game is full.");
     _;
   }
 
@@ -76,7 +65,7 @@ contract RockPaperScissorsInstance is Initializable {
    * @dev Initializes the game with an ERC20 token, the caller who started the game 
    * and a bet amount. 
    * 
-   * Emits a {GameCreated} event indicating the creator, address of the token to be used 
+   * Emits a {GameInitialized} event indicating the creator, address of the token to be used 
    * and the bet amount.
    */
   function initialize(address _creatorPlayer, address _tokenAddress, uint _betAmount) public initializer {
@@ -84,18 +73,7 @@ contract RockPaperScissorsInstance is Initializable {
     playerA = _creatorPlayer;
     betAmount = _betAmount;
 
-    emit GameCreated(_creatorPlayer, _tokenAddress, _betAmount);
-  }
-
-  /**
-   * @dev Enroll in the game by submitting the correct `_betAmount`.
-   * 
-   * Emits a {PlayerEnrolled} event indicating the newly enrolled player.
-   */
-  function enrollInGame(uint _betAmount) public isNewPlayer() isOpenGame() {
-    depositBet(_betAmount);
-
-    emit PlayerEnrolled(msg.sender);
+    emit GameInitialized(_creatorPlayer, _tokenAddress, _betAmount);
   }
 
   /**
@@ -177,6 +155,7 @@ contract RockPaperScissorsInstance is Initializable {
 
   /**
    * @dev Deposits `_depositBetAmount` into the contract if it's greater than 0.
+   * Also handles enrolling of `playerB` if they haven't enrolled yet.
    *
    * Emits a {DepositCompleted} event indicating the player who deposited and the amount.
    * Emits a {GameStarted} event indicating the players and the deposit amount.
@@ -185,24 +164,38 @@ contract RockPaperScissorsInstance is Initializable {
    *
    * - the caller must be an existing player or there is still space for enrolling in the game.
    * - `playerHasDeposited[msg.sender]` must be false.
-   * - `_depositBetAmount` must equal `betAmount` OR neither player has deposited yet.
+   * - `_depositBetAmount` must equal `betAmount` OR neither player has deposited yet AND
+   *   both players are enrolled and in the game (rematch scenario).
    * - this contract requires allowance to transfer `_depositBetAmount` tokens
    */
   function depositBet(uint _depositBetAmount) public {
-    require(msg.sender == playerA || msg.sender == playerB || playerB == address(0), "You are not allowed to deposit.");
     require(playerDataMap[msg.sender].deposited == false, "You have already deposited.");
+    require(token.allowance(
+      msg.sender,
+      address(this)) == _depositBetAmount,
+      "You don't have allowance."
+    );
+    require(
+      msg.sender == playerA
+      || msg.sender == playerB
+      || playerB == address(0),
+      "You are not allowed to deposit."
+    );
     require(
       _depositBetAmount == betAmount
-      || (playerDataMap[playerA].deposited == false
-      && playerDataMap[playerB].deposited == false), "You've submitted the incorrect bet amount."
+      || (playerB != address(0)
+      && (playerDataMap[playerA].deposited == false
+      && playerDataMap[playerB].deposited == false)),
+      "You've submitted the incorrect bet amount."
     );
-    require(token.allowance(msg.sender, address(this)) == _depositBetAmount, "You don't have allowance.");
     
     bool success = token.transferFrom(msg.sender, address(this), _depositBetAmount);
     if (success) {
       playerDataMap[msg.sender].deposited = true;
 
-      if (playerB == address(0)) {
+      // only used for enrolling playerB (playerA is enrolled when they pay for
+      // contract creation)
+      if (playerB == address(0) && msg.sender != playerA) {
         playerB = msg.sender;
       }
 
