@@ -36,8 +36,7 @@ describe("RockPaperScissorsCloneFactory Happy Path", function () {
       );
     const contractReceipt = await contractTxn.wait();
 
-    const contractAddress =
-      contractReceipt.logs[0].address;
+    const contractAddress = contractReceipt.logs[0].address;
     const factory = await ethers.getContractFactory(
       "RockPaperScissorsInstance"
     );
@@ -99,6 +98,26 @@ describe("RockPaperScissorsCloneFactory Happy Path", function () {
     );
   });
 
+  it("Should emit the correct variables.", async () => {
+    const contractTxn =
+      await rockPaperScissorsCloneFactory.createRockPaperScissorsInstance(
+        playerA.address,
+        rpsToken.address,
+        INITIAL_BET_AMOUNT
+      );
+    const contractReceipt = await contractTxn.wait();
+    const contractAddress = contractReceipt.logs[0].address;
+
+    await expect(contractTxn)
+      .to.emit(rockPaperScissorsCloneFactory, "GameCreated")
+      .withArgs(
+        playerA.address,
+        contractAddress,
+        rpsToken.address,
+        INITIAL_BET_AMOUNT
+      );
+  });
+
   it("Can create multiple RPSInstances from same caller.", async () => {
     const initialInstanceAddress = rockPaperScissorsInstance.address;
     const secondInstanceAddress = await createAndSetRPSInstance(
@@ -118,10 +137,7 @@ describe("RockPaperScissorsCloneFactory Happy Path", function () {
   });
 
   it("Can create 0 betAmount RPSInstance.", async () => {
-    await createAndSetRPSInstance(
-      playerA,
-      0
-    );
+    await createAndSetRPSInstance(playerA, 0);
     expect(await rockPaperScissorsInstance.betAmount()).to.be.eq(0);
   });
 });
