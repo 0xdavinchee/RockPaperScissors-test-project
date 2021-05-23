@@ -11,7 +11,7 @@ import {
   RpsToken,
 } from "../typechain";
 
-describe("RockPaperScissorsClone Happy Path", function () {
+describe("RockPaperScissorsInstance Tests", () => {
   const INITIAL_BET_AMOUNT = 10;
   let contractCreator: SignerWithAddress;
   let playerA: SignerWithAddress;
@@ -36,8 +36,7 @@ describe("RockPaperScissorsClone Happy Path", function () {
       );
     const contractReceipt = await contractTxn.wait();
 
-    const contractAddress =
-      contractReceipt.logs[0].address;
+    const contractAddress = contractReceipt.logs[0].address;
     const factory = await ethers.getContractFactory(
       "RockPaperScissorsInstance"
     );
@@ -83,45 +82,44 @@ describe("RockPaperScissorsClone Happy Path", function () {
     await createAndSetRPSInstance(playerA, INITIAL_BET_AMOUNT);
   });
 
-  it("Should reference the correct template.", async () => {
-    expect(
-      await rockPaperScissorsCloneFactory.getImplementationAddress()
-    ).to.be.eq(rockPaperScissorsTemplate.address);
-  });
+  describe("Enroll Tests", () => {
+    it("Should allow another player to enroll in game", async () => {
+      await rpsToken
+        .connect(playerB)
+        .approve(rockPaperScissorsInstance.address, 10);
+      await expect(
+        rockPaperScissorsInstance
+          .connect(playerB)
+          .enrollInGame(INITIAL_BET_AMOUNT)
+      )
+        .to.emit(rockPaperScissorsInstance, "PlayerEnrolled")
+        .withArgs(playerB.address);
+    });
 
-  it("RPSInstance playerA should be correct.", async () => {
-    expect(await rockPaperScissorsInstance.playerA()).to.be.eq(playerA.address);
-  });
+    it("Shouldn't allow the same player to enroll in game", async () => {
+      await rpsToken
+        .connect(playerA)
+        .approve(rockPaperScissorsInstance.address, 10);
+      await expect(
+        rockPaperScissorsInstance
+          .connect(playerA)
+          .enrollInGame(INITIAL_BET_AMOUNT)
+      ).to.be.revertedWith("You are already a part of this game.");
+    });
 
-  it("RPSInstance betAmount should be correct.", async () => {
-    expect(await rockPaperScissorsInstance.betAmount()).to.be.eq(
-      INITIAL_BET_AMOUNT
-    );
-  });
+    it("Shouldn't allow a player to enroll in a full game", async () => {
+      await rpsToken
+        .connect(playerB)
+        .approve(rockPaperScissorsInstance.address, 10);
 
-  it("Can create multiple RPSInstances from same caller.", async () => {
-    const initialInstanceAddress = rockPaperScissorsInstance.address;
-    const secondInstanceAddress = await createAndSetRPSInstance(
-      playerA,
-      INITIAL_BET_AMOUNT
-    );
-    expect(initialInstanceAddress).to.not.be.eq(secondInstanceAddress);
-  });
-
-  it("Can create multiple RPSInstances from different callers.", async () => {
-    const initialInstanceAddress = rockPaperScissorsInstance.address;
-    const secondInstanceAddress = await createAndSetRPSInstance(
-      playerB,
-      INITIAL_BET_AMOUNT
-    );
-    expect(initialInstanceAddress).to.not.be.eq(secondInstanceAddress);
-  });
-
-  it("Can create 0 betAmount RPSInstance.", async () => {
-    await createAndSetRPSInstance(
-      playerA,
-      0
-    );
-    expect(await rockPaperScissorsInstance.betAmount()).to.be.eq(0);
+      await rockPaperScissorsInstance
+        .connect(playerB)
+        .enrollInGame(INITIAL_BET_AMOUNT);
+      await expect(
+        rockPaperScissorsInstance
+          .connect(contractCreator)
+          .enrollInGame(INITIAL_BET_AMOUNT)
+      ).to.be.revertedWith("This game is full.");
+    });
   });
 });
