@@ -49,16 +49,26 @@ describe("RockPaperScissorsInstance Tests", () => {
     return rockPaperScissorsInstance.address;
   };
 
+  const getHashedMove = async (move: number) => {
+    const now = new Date().getMilliseconds();
+    const salt = ethers.utils.id(now.toString());
+    const hashedMove = ethers.utils.solidityKeccak256(
+      ["uint8", "bytes32"],
+      [move, salt]
+    );
+    return { hashedMove, salt };
+  };
+
   before(async () => {
     [contractCreator, playerA, playerB] = await ethers.getSigners();
     rpsTokenFactory = (await ethers.getContractFactory(
       "RPSToken",
       contractCreator
     )) as RpsTokenFactory;
-    rpsToken = await rpsTokenFactory.deploy(1000);
+    rpsToken = await rpsTokenFactory.deploy(10000);
     await rpsToken.deployed();
-    await rpsToken.connect(contractCreator).transfer(playerA.address, 100);
-    await rpsToken.connect(contractCreator).transfer(playerB.address, 100);
+    await rpsToken.connect(contractCreator).transfer(playerA.address, 1000);
+    await rpsToken.connect(contractCreator).transfer(playerB.address, 1000);
 
     rockPaperScissorsInstanceFactory = (await ethers.getContractFactory(
       "RockPaperScissorsInstance",
@@ -112,7 +122,7 @@ describe("RockPaperScissorsInstance Tests", () => {
     it("Should allow player A to deposit funds.", async () => {
       await rpsToken
         .connect(playerA)
-        .approve(rockPaperScissorsInstance.address, 10);
+        .approve(rockPaperScissorsInstance.address, INITIAL_BET_AMOUNT);
       await expect(
         rockPaperScissorsInstance
           .connect(playerA)
@@ -151,31 +161,33 @@ describe("RockPaperScissorsInstance Tests", () => {
     it("Should not allow player to deposit incorrect token amount.", async () => {
       await rpsToken
         .connect(playerA)
-        .approve(rockPaperScissorsInstance.address, 20);
+        .approve(rockPaperScissorsInstance.address, INITIAL_BET_AMOUNT * 2);
 
       await expect(
-        rockPaperScissorsInstance.connect(playerA).depositBet(20)
+        rockPaperScissorsInstance
+          .connect(playerA)
+          .depositBet(INITIAL_BET_AMOUNT * 2)
       ).to.be.revertedWith("You've submitted the incorrect bet amount.");
     });
 
     it("Should not allow a player to deposit when game is full.", async () => {
       await rpsToken
         .connect(playerA)
-        .approve(rockPaperScissorsInstance.address, 10);
+        .approve(rockPaperScissorsInstance.address, INITIAL_BET_AMOUNT);
       await rockPaperScissorsInstance
         .connect(playerA)
         .depositBet(INITIAL_BET_AMOUNT);
 
       await rpsToken
         .connect(playerB)
-        .approve(rockPaperScissorsInstance.address, 10);
+        .approve(rockPaperScissorsInstance.address, INITIAL_BET_AMOUNT);
       await rockPaperScissorsInstance
         .connect(playerB)
         .depositBet(INITIAL_BET_AMOUNT);
 
       await rpsToken
         .connect(contractCreator)
-        .approve(rockPaperScissorsInstance.address, 10);
+        .approve(rockPaperScissorsInstance.address, INITIAL_BET_AMOUNT);
       await expect(
         rockPaperScissorsInstance
           .connect(contractCreator)
@@ -206,12 +218,12 @@ describe("RockPaperScissorsInstance Tests", () => {
         playerB.address
       );
 
-      expect(
-        playerAAddress === playerA.address &&
-          playerADataMap["deposited"] === true &&
-          playerBAddress === playerB.address &&
-          playerBDataMap["deposited"] === true
-      );
+      expect([
+        playerAAddress,
+        playerBAddress,
+        playerADataMap["deposited"],
+        playerBDataMap["deposited"],
+      ]).to.be.eql([playerA.address, playerB.address, true, true]);
     });
 
     it("Should emit DepositCompleted on successful deposit.", async () => {
@@ -247,4 +259,94 @@ describe("RockPaperScissorsInstance Tests", () => {
         .withArgs(playerA.address, playerB.address, INITIAL_BET_AMOUNT);
     });
   });
+
+  describe("Submit/Reveal Move Tests", () => {
+    beforeEach(async () => {
+      await rpsToken
+        .connect(playerA)
+        .approve(rockPaperScissorsInstance.address, INITIAL_BET_AMOUNT);
+      await rockPaperScissorsInstance
+        .connect(playerA)
+        .depositBet(INITIAL_BET_AMOUNT);
+
+      await rpsToken
+        .connect(playerB)
+        .approve(rockPaperScissorsInstance.address, INITIAL_BET_AMOUNT);
+      await rockPaperScissorsInstance
+        .connect(playerB)
+        .depositBet(INITIAL_BET_AMOUNT);
+    });
+
+    it("Should allow the user to submit a move.", async () => {
+      const { hashedMove } = await getHashedMove(0);
+      await expect(
+        rockPaperScissorsInstance.connect(playerA).submitMove(hashedMove)
+      )
+        .to.emit(rockPaperScissorsInstance, "MoveSubmitted")
+        .withArgs(playerA.address, hashedMove);
+    });
+
+    it("Should not allow the user to change their move.", async () => {
+      const { hashedMove } = await getHashedMove(0);
+      await rockPaperScissorsInstance.connect(playerA).submitMove(hashedMove);
+      await expect(
+        rockPaperScissorsInstance.connect(playerA).submitMove(hashedMove)
+      ).to.be.revertedWith("You cannot change your move.");
+    });
+
+    it("Should allow both users to make their move.", async () => {
+      const { hashedMove: playerAHashedMove } = await getHashedMove(0);
+      const { hashedMove: playerBHashedMove } = await getHashedMove(1);
+      await rockPaperScissorsInstance
+        .connect(playerA)
+        .submitMove(playerAHashedMove);
+      await rockPaperScissorsInstance
+        .connect(playerB)
+        .submitMove(playerBHashedMove);
+      const playerADataMap = await rockPaperScissorsInstance.playerDataMap(
+        playerA.address
+      );
+      const playerBDataMap = await rockPaperScissorsInstance.playerDataMap(
+        playerB.address
+      );
+      expect([playerAHashedMove, playerBHashedMove]).to.be.eql([
+        playerADataMap["move"],
+        playerBDataMap["move"],
+      ]);
+    });
+
+    it("Should allow the user to reveal their move.", async () => {
+      const { hashedMove: playerAHashedMove, salt } = await getHashedMove(0);
+      const hashedMove = ethers.utils.solidityKeccak256(["uint"], [0]);
+      await rockPaperScissorsInstance
+        .connect(playerA)
+        .submitMove(playerAHashedMove);
+      await rockPaperScissorsInstance
+        .connect(playerB)
+        .submitMove(playerAHashedMove);
+      await expect(
+        rockPaperScissorsInstance.connect(playerA).revealMove(0, salt)
+      )
+        .to.emit(rockPaperScissorsInstance, "MoveRevealed")
+        .withArgs(playerA.address, hashedMove);
+    });
+
+    it("Should allow both users to reveal their moves.", async () => {
+      const { hashedMove: playerAHashedMove, salt } = await getHashedMove(0);
+      const hashedMove = ethers.utils.solidityKeccak256(["uint"], [0]);
+      await rockPaperScissorsInstance
+        .connect(playerA)
+        .submitMove(playerAHashedMove);
+      await rockPaperScissorsInstance
+        .connect(playerB)
+        .submitMove(playerAHashedMove);
+      await rockPaperScissorsInstance.connect(playerA).revealMove(0, salt);
+      await expect(
+        rockPaperScissorsInstance.connect(playerB).revealMove(0, salt)
+      )
+        .withArgs(playerB.address, hashedMove);
+    });
+  });
 });
+
+// still have to test deposit rematch case (should allow deposits)

@@ -89,8 +89,8 @@ contract RockPaperScissorsInstance is Initializable {
    */
   function submitMove(bytes32 _move) public isValidPlayer(msg.sender) {
     require(
-      msg.sender == playerA && playerDataMap[playerA].move[0] != 0
-      || msg.sender == playerB && playerDataMap[playerB].move[0] != 0,
+      msg.sender == playerA && playerDataMap[playerA].move[0] == 0
+      || msg.sender == playerB && playerDataMap[playerB].move[0] == 0,
       "You cannot change your move."
     );
     
@@ -107,7 +107,8 @@ contract RockPaperScissorsInstance is Initializable {
 
   /**
    * @dev Reveals the move the caller made and exposes it on the blockchain.
-   * If both players have revealed their moves, we can check who won.
+   * If both players have revealed their moves, the contract checks who won and declares
+   * a winner.
    *
    * Emits a {MoveRevealed} event indicating the revealed move and the player who made it.
    *
