@@ -316,14 +316,14 @@ describe("RockPaperScissorsInstance Tests", () => {
     });
 
     it("Should allow the user to reveal their move.", async () => {
-      const { hashedMove: playerAHashedMove, salt } = await getHashedMove(0);
+      const { hashedMove: playerHashedMove, salt } = await getHashedMove(0);
       const hashedMove = ethers.utils.solidityKeccak256(["uint"], [0]);
       await rockPaperScissorsInstance
         .connect(playerA)
-        .submitMove(playerAHashedMove);
+        .submitMove(playerHashedMove);
       await rockPaperScissorsInstance
         .connect(playerB)
-        .submitMove(playerAHashedMove);
+        .submitMove(playerHashedMove);
       await expect(
         rockPaperScissorsInstance.connect(playerA).revealMove(0, salt)
       )
@@ -332,19 +332,143 @@ describe("RockPaperScissorsInstance Tests", () => {
     });
 
     it("Should allow both users to reveal their moves.", async () => {
-      const { hashedMove: playerAHashedMove, salt } = await getHashedMove(0);
+      const { hashedMove: playerHashedMove, salt } = await getHashedMove(0);
       const hashedMove = ethers.utils.solidityKeccak256(["uint"], [0]);
       await rockPaperScissorsInstance
         .connect(playerA)
-        .submitMove(playerAHashedMove);
+        .submitMove(playerHashedMove);
       await rockPaperScissorsInstance
         .connect(playerB)
-        .submitMove(playerAHashedMove);
+        .submitMove(playerHashedMove);
       await rockPaperScissorsInstance.connect(playerA).revealMove(0, salt);
       await expect(
         rockPaperScissorsInstance.connect(playerB).revealMove(0, salt)
       )
+        .to.emit(rockPaperScissorsInstance, "MoveRevealed")
         .withArgs(playerB.address, hashedMove);
+    });
+
+    it("Should not allow user to use wrong move when revealing.", async () => {
+      const { hashedMove: playerHashedMove, salt } = await getHashedMove(0);
+      await rockPaperScissorsInstance
+        .connect(playerA)
+        .submitMove(playerHashedMove);
+      await rockPaperScissorsInstance
+        .connect(playerB)
+        .submitMove(playerHashedMove);
+      await expect(
+        rockPaperScissorsInstance.connect(playerB).revealMove(1, salt)
+      ).to.be.revertedWith(
+        "It appears the move you entered isn't the same as before."
+      );
+    });
+
+    it("Should not allow user to use wrong salt when revealing.", async () => {
+      const { hashedMove: playerHashedMove, salt } = await getHashedMove(0);
+      await rockPaperScissorsInstance
+        .connect(playerA)
+        .submitMove(playerHashedMove);
+      await rockPaperScissorsInstance
+        .connect(playerB)
+        .submitMove(playerHashedMove);
+        const { salt: incorrectSalt } = await getHashedMove(0);
+      await expect(
+        rockPaperScissorsInstance.connect(playerB).revealMove(0, incorrectSalt)
+      ).to.be.revertedWith(
+        "It appears the move you entered isn't the same as before."
+      );
+    });
+
+    it("Should reset everyone's moves if one or more players submitted an incorrect move.", async () => {
+      const { hashedMove: playerHashedMove, salt } = await getHashedMove(3);
+      await rockPaperScissorsInstance
+        .connect(playerA)
+        .submitMove(playerHashedMove);
+      await rockPaperScissorsInstance
+        .connect(playerB)
+        .submitMove(playerHashedMove);
+      await expect(
+        rockPaperScissorsInstance.connect(playerA).revealMove(3, salt)
+      ).to.be.revertedWith("You must pick rock, paper or scissors.");
+    });
+  });
+
+  describe("Game Logic/Winner Tests", () => {
+    const submitMove = async (player: SignerWithAddress, move: number) => {
+      const { hashedMove: playerHashedMove, salt } = await getHashedMove(move);
+      const hashedMove = ethers.utils.solidityKeccak256(["uint"], [move]);
+      await rockPaperScissorsInstance
+        .connect(player)
+        .submitMove(playerHashedMove);
+
+      return { hashedMove, salt };
+    };
+    const revealMove = async (
+      player: SignerWithAddress,
+      move: number,
+      salt: string
+    ) => {
+      await rockPaperScissorsInstance.connect(player).revealMove(move, salt);
+    };
+    const submitMovesAndReveal = async (
+      playerA: SignerWithAddress,
+      playerB: SignerWithAddress,
+      playerAMove: number,
+      playerBMove: number
+    ) => {
+      const { salt: playerASalt } = await submitMove(playerA, playerAMove);
+      const { salt: playerBSalt } = await submitMove(playerB, playerBMove);
+
+      await revealMove(playerA, playerAMove, playerASalt);
+      await revealMove(playerB, playerBMove, playerBSalt);
+    };
+
+    beforeEach(async () => {
+      await rpsToken
+        .connect(playerA)
+        .approve(rockPaperScissorsInstance.address, INITIAL_BET_AMOUNT);
+      await rockPaperScissorsInstance
+        .connect(playerA)
+        .depositBet(INITIAL_BET_AMOUNT);
+
+      await rpsToken
+        .connect(playerB)
+        .approve(rockPaperScissorsInstance.address, INITIAL_BET_AMOUNT);
+      await rockPaperScissorsInstance
+        .connect(playerB)
+        .depositBet(INITIAL_BET_AMOUNT);
+    });
+  
+    it("Should be a tie if players use the same move", async () => {
+      await submitMovesAndReveal(playerA, playerB, 0, 0);
+      const winner = await rockPaperScissorsInstance.winner();
+      const playerADataMap = await rockPaperScissorsInstance.playerDataMap(
+        playerA.address
+      );
+      const playerBDataMap = await rockPaperScissorsInstance.playerDataMap(
+        playerA.address
+      );
+      expect([
+        winner,
+        playerADataMap["move"],
+        playerBDataMap["move"],
+      ]).to.be.eql([
+        ethers.constants.AddressZero,
+        ethers.constants.HashZero,
+        ethers.constants.HashZero,
+      ]);
+    });
+
+    it("Player A should win with a winning hand", async () => {
+      await submitMovesAndReveal(playerA, playerB, 0, 2);
+      const winner = await rockPaperScissorsInstance.winner();
+      expect(winner).to.be.eql(playerA.address);
+    });
+
+    it("Player B should win with a winning hand", async () => {
+      await submitMovesAndReveal(playerA, playerB, 0, 1);
+      const winner = await rockPaperScissorsInstance.winner();
+      expect(winner).to.be.eql(playerB.address);
     });
   });
 });

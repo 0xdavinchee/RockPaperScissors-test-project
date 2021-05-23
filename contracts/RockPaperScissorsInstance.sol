@@ -29,11 +29,12 @@ contract RockPaperScissorsInstance is Initializable {
 
   mapping (address => PlayerData) public playerDataMap;
 
-  event GameInitialized(address _playerA, address _tokenAddress, uint _betAmount);
+  event GameInitialized(address indexed _playerA, address indexed _tokenAddress, uint _betAmount);
   event GameStarted(address _playerA, address _playerB, uint _betAmount);
   event GameOutcome(address _winner, bytes32 _winningMove);
   event DepositCompleted(address _player, uint _amount);
   event MoveSubmitted(address _player, bytes32 _move);
+  event MovesReset();
   event MoveRevealed(address _player, bytes32 _revealedMove);
   event WithdrawFunds(address _player, uint _amount, WithdrawalReason _reason);
   event RematchRequested(address _requester, uint _betAmount);
@@ -108,7 +109,8 @@ contract RockPaperScissorsInstance is Initializable {
   /**
    * @dev Reveals the move the caller made and exposes it on the blockchain.
    * If both players have revealed their moves, the contract checks who won and declares
-   * a winner.
+   * a winner. If a player reveals their move and it is an incorrect move, we must reset
+   * everyone's moves.
    *
    * Emits a {MoveRevealed} event indicating the revealed move and the player who made it.
    *
@@ -126,6 +128,11 @@ contract RockPaperScissorsInstance is Initializable {
     
     bytes32 revealedHash = keccak256(abi.encodePacked(_move, _salt));
     require(revealedHash == playerDataMap[msg.sender].move, "It appears the move you entered isn't the same as before.");
+
+    if (_move >= 3) {
+      resetPlayerMoves();
+    }
+    require(_move < 3, "You must pick rock, paper or scissors.");
     
     bytes32 revealedMoveHash = keccakUint(_move);
 
@@ -332,8 +339,7 @@ contract RockPaperScissorsInstance is Initializable {
    */
   function endGameOrResetMoves(address _winningAddress) internal {
     if (_winningAddress == address(0)) {
-      delete playerDataMap[playerA].move;
-      delete playerDataMap[playerB].move;
+      resetPlayerMoves();
     }
 
     if (_winningAddress != address(0)) {
@@ -344,8 +350,22 @@ contract RockPaperScissorsInstance is Initializable {
     emit GameOutcome(_winningAddress, playerDataMap[_winningAddress].move);
   }
 
+  /**
+   * @dev Resets players moves.
+   *
+   * Emits a {MovesReset} event indicating the all players moves have been reset.
+   *
+   */
+  function resetPlayerMoves() internal {
+      delete playerDataMap[playerA].move;
+      delete playerDataMap[playerB].move;
+      emit MovesReset();
+  }
+
+  /**
+   * @dev Returns the keccak256 hash of an uint.
+   */
   function keccakUint(uint _int) internal pure returns (bytes32) {
     return keccak256(abi.encodePacked(_int));
   }
-
 }
