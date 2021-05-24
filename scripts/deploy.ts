@@ -1,20 +1,39 @@
-// We require the Hardhat Runtime Environment explicitly here. This is optional 
-// but useful for running the script in a standalone fashion through `node <script>`.
-//
-// When running the script with `hardhat run <script>` you'll find the Hardhat
-// Runtime Environment's members available in the global scope.
-import hre from "hardhat";
+import { ethers } from "hardhat";
+
+import {
+  RockPaperScissorsCloneFactoryFactory,
+  RockPaperScissorsInstanceFactory,
+  RpsTokenFactory,
+} from "../typechain";
 
 async function main() {
-  // Hardhat always runs the compile task when running scripts with its command
-  // line interface.
-  //
-  // If this script is run directly using `node` you may want to call compile 
-  // manually to make sure everything is compiled
-  // await hre.run('compile');
+  const [contractCreator] = await ethers.getSigners();
 
-  // We get the contract to deploy
+  // Deploy Token Contract
+  let rpsTokenFactory = (await ethers.getContractFactory(
+    "RPSToken",
+    contractCreator
+  )) as RpsTokenFactory;
+  let rpsToken = await rpsTokenFactory.deploy(10000);
+  await rpsToken.deployed();
+  
+  // Deploy RPSInstanceTemplate (will be used by clones)
+  let rpsInstanceFactory = (await ethers.getContractFactory(
+    "RockPaperScissorsInstance",
+    contractCreator
+  )) as RockPaperScissorsInstanceFactory;
+  let rpsTemplate = await rpsInstanceFactory.deploy();
+  await rpsTemplate.deployed();
+
+  // Deploy RPSCloneFactory using the deployed RPSInstanceTemplate
+  let rpsCloneFactoryFactory = (await ethers.getContractFactory(
+    "RockPaperScissorsCloneFactory",
+    contractCreator
+  )) as RockPaperScissorsCloneFactoryFactory;
+  let rpsCloneFactory = await rpsCloneFactoryFactory.deploy(rpsTemplate.address);
+  await rpsCloneFactory.deployed();
 }
+  
 
 // We recommend this pattern to be able to use async/await everywhere
 // and properly handle errors.

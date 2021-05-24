@@ -38,30 +38,6 @@ describe("RockPaperScissorsInstance Tests", () => {
     return await rpsInstance.connect(player).depositBet(amount);
   };
 
-  const createAndSetRPSInstance = async (
-    player: SignerWithAddress,
-    betAmount: number
-  ) => {
-    let contractTxn = await rpsCloneFactory.createRockPaperScissorsInstance(
-      player.address,
-      rpsToken.address,
-      betAmount
-    );
-    const contractReceipt = await contractTxn.wait();
-
-    const contractAddress = contractReceipt.logs[0].address;
-    const factory = await ethers.getContractFactory(
-      "RockPaperScissorsInstance"
-    );
-    rpsInstance = new ethers.Contract(
-      contractAddress,
-      factory.interface,
-      player
-    ) as RockPaperScissorsInstance;
-
-    return rpsInstance.address;
-  };
-
   const getHashedMove = async (move: number) => {
     const now = new Date().getMilliseconds();
     const salt = ethers.utils.id(now.toString());
@@ -126,7 +102,21 @@ describe("RockPaperScissorsInstance Tests", () => {
   });
 
   beforeEach(async () => {
-    await createAndSetRPSInstance(playerA, INITIAL_BET_AMOUNT);
+    let contractTxn = await rpsCloneFactory.createRockPaperScissorsInstance(
+      playerA.address,
+      rpsToken.address,
+      INITIAL_BET_AMOUNT
+    );
+    const contractReceipt = await contractTxn.wait();
+    const contractAddress = contractReceipt.logs[0].address;
+    const factory = await ethers.getContractFactory(
+      "RockPaperScissorsInstance"
+    );
+    rpsInstance = new ethers.Contract(
+      contractAddress,
+      factory.interface,
+      playerA
+    ) as RockPaperScissorsInstance;
   });
 
   describe("Initialize Test", () => {
@@ -186,22 +176,6 @@ describe("RockPaperScissorsInstance Tests", () => {
       await expect(
         approveTokenAndDepositBet(contractCreator, INITIAL_BET_AMOUNT)
       ).to.be.revertedWith("You are not allowed to deposit.");
-    });
-
-    it("Should allow both players to deposit funds.", async () => {
-      await approveTokenAndDepositBet(playerA, INITIAL_BET_AMOUNT);
-      await approveTokenAndDepositBet(playerB, INITIAL_BET_AMOUNT);
-      const playerAAddress = await rpsInstance.playerA();
-      const playerBAddress = await rpsInstance.playerB();
-      const playerADataMap = await rpsInstance.playerDataMap(playerA.address);
-      const playerBDataMap = await rpsInstance.playerDataMap(playerB.address);
-
-      expect([
-        playerAAddress,
-        playerBAddress,
-        playerADataMap["deposited"],
-        playerBDataMap["deposited"],
-      ]).to.eql([playerA.address, playerB.address, true, true]);
     });
 
     it("Should emit DepositCompleted on successful deposit.", async () => {

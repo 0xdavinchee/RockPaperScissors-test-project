@@ -1,5 +1,5 @@
 //SPDX-License-Identifier: Unlicense
-pragma solidity ^0.7.0;
+pragma solidity ^0.8.0;
 
 import "./RockPaperScissorsInstance.sol";
 import "@openzeppelin/contracts/proxy/Clones.sol";

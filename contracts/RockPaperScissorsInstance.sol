@@ -1,8 +1,7 @@
 //SPDX-License-Identifier: Unlicense
-pragma solidity ^0.7.0;
+pragma solidity ^0.8.0;
 
-import "hardhat/console.sol";
-import "@openzeppelin/contracts/proxy/Initializable.sol";
+import "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 contract RockPaperScissorsInstance is Initializable {
@@ -119,6 +118,7 @@ contract RockPaperScissorsInstance is Initializable {
     external
     isValidPlayer(msg.sender)
   {
+    require(isActive == true, "The game is no longer active.");
     require(
       playerDataMap[playerA].move[0] != 0 &&
         playerDataMap[playerB].move[0] != 0,
@@ -180,6 +180,10 @@ contract RockPaperScissorsInstance is Initializable {
       "You have already deposited."
     );
     require(
+      token.balanceOf(msg.sender) >= _depositBetAmount,
+      "You don't have enough tokens."
+    );
+    require(
       token.allowance(msg.sender, address(this)) == _depositBetAmount,
       "You don't have allowance."
     );
@@ -239,7 +243,7 @@ contract RockPaperScissorsInstance is Initializable {
   /**
    * @dev Allows the winner to start a rematch with their winnings.
    */
-  function startRematchWithWinnings() external isValidPlayer(msg.sender) {
+  function startRematchWithWinnings() external {
     require(
       msg.sender == winner && isActive == false,
       "You must be the winner to start a rematch with the winnings."
@@ -280,10 +284,7 @@ contract RockPaperScissorsInstance is Initializable {
    * gives the opponent an hour to make a move otherwise the caller will be able to
    * withdraw the deposited funds.
    */
-  function incentivizeUser()
-    external
-    canIncentivizeOpponent()
-  {
+  function incentivizeUser() external canIncentivizeOpponent() {
     uint256 contractTokenBalance = token.balanceOf(address(this));
 
     if (incentiveStartTime == 0) {
