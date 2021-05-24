@@ -210,6 +210,7 @@ contract RockPaperScissorsInstance is Initializable {
   /**
    * @dev Allows a player to withdraw deposited tokens if done before the game has started.
    */
+  function withdrawBeforeGameStarts() external {
     require(isActive == false, "You can't withdraw once the game has started.");
     require(playerDataMap[msg.sender].deposited == true, "You haven't deposited yet.");
     require(winner == address(0), "You can't withdraw when there's a winner.");
@@ -232,8 +233,10 @@ contract RockPaperScissorsInstance is Initializable {
     if (incentiveStartTime == 0) {
       incentiveStartTime = block.timestamp;
     }
-
-    if (incentiveStartTime != 0 && ((block.timestamp - incentiveStartTime) > 1 hours)) {
+    
+    // this is set to 1 seconds for testing purposes, it would make sense
+    // to give your opponent much more time to respond.
+    if (incentiveStartTime != 0 && ((block.timestamp - incentiveStartTime) > 1 seconds)) {
       isActive = false;
       winner = msg.sender;
       token.transfer(msg.sender, contractTokenBalance);
