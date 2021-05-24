@@ -30,14 +30,14 @@ contract RockPaperScissorsInstance is Initializable {
   mapping (address => PlayerData) public playerDataMap;
 
   event GameInitialized(address indexed _playerA, address indexed _tokenAddress, uint _betAmount);
-  event GameStarted(address _playerA, address _playerB, uint _betAmount);
-  event GameOutcome(address _winner, bytes32 _winningMove);
-  event DepositCompleted(address _player, uint _amount);
-  event MoveSubmitted(address _player, bytes32 _move);
+  event GameStarted(address indexed _playerA, address indexed _playerB, uint _betAmount);
+  event GameOutcome(address indexed _winner, bytes32 _winningMove);
+  event DepositCompleted(address indexed _player, uint _amount);
+  event MoveSubmitted(address indexed _player, bytes32 _move);
   event MovesReset();
-  event MoveRevealed(address _player, bytes32 _revealedMove);
-  event WithdrawFunds(address _player, uint _amount, WithdrawalReason _reason);
-  event RematchRequested(address _requester, uint _betAmount);
+  event MoveRevealed(address indexed _player, bytes32 _revealedMove);
+  event WithdrawFunds(address indexed _player, uint _amount, WithdrawalReason _reason);
+  event RematchRequested(address indexed _requester, uint _betAmount);
 
   modifier isValidPlayer(address _address) {
     require(msg.sender == playerA || msg.sender == playerB, "You are not a part of this game.");
@@ -60,9 +60,6 @@ contract RockPaperScissorsInstance is Initializable {
   /**
    * @dev Initializes the game with an ERC20 token, the caller who started the game 
    * and a bet amount. 
-   * 
-   * Emits a {GameInitialized} event indicating the creator, address of the token to be used 
-   * and the bet amount.
    */
   function initialize(address _creatorPlayer, address _tokenAddress, uint _betAmount) public initializer {
     token = IERC20(_tokenAddress);
@@ -76,14 +73,8 @@ contract RockPaperScissorsInstance is Initializable {
    * @dev Submits a move that is encrypted using a randomized salt on the client.
    * If the player who hasn't made a move yet (and was being uncooperative) makes a
    * move, the incentiveStartTime gets reset to 0.
-   *
-   * Emits a {MoveSubmitted} event indicating the move made and the player who made it.
-   *
-   * Requirements:
-   * 
-   * - the caller cannot change their move once they've submitted it.
    */
-  function submitMove(bytes32 _move) public isValidPlayer(msg.sender) {
+  function submitMove(bytes32 _move) external isValidPlayer(msg.sender) {
     require(
       msg.sender == playerA && playerDataMap[playerA].move[0] == 0
       || msg.sender == playerB && playerDataMap[playerB].move[0] == 0,
@@ -106,15 +97,8 @@ contract RockPaperScissorsInstance is Initializable {
    * If both players have revealed their moves, the contract checks who won and declares
    * a winner. If a player reveals their move and it is an incorrect move, we must reset
    * everyone's moves.
-   *
-   * Emits a {MoveRevealed} event indicating the revealed move and the player who made it.
-   *
-   * Requirements:
-   * 
-   * - both players have to make their moves before either can reveal
-   * - the user must pass the move they submitted initially with the same salt used for encryption
    */
-  function revealMove(uint8 _move, bytes32 _salt) public isValidPlayer(msg.sender) {
+  function revealMove(uint8 _move, bytes32 _salt) external isValidPlayer(msg.sender) {
     require(
       playerDataMap[playerA].move[0] != 0
       && playerDataMap[playerB].move[0] != 0,
@@ -144,11 +128,8 @@ contract RockPaperScissorsInstance is Initializable {
 
   /**
    * @dev Allows the winner of the game to withdraw the tokens if there is something to withdraw.
-   *
-   * Emits a {WithdrawFunds} event indicating the player who withdrew, the amount and the reason.
-   *
    */
-  function withdrawWinnings() public {
+  function withdrawWinnings() external {
     require(msg.sender == winner && isActive == false, "You are not allowed to withdraw.");
     uint winningAmount = token.balanceOf(address(this));
     token.transfer(msg.sender, winningAmount);
@@ -159,19 +140,8 @@ contract RockPaperScissorsInstance is Initializable {
   /**
    * @dev Deposits `_depositBetAmount` into the contract if it's greater than 0.
    * Also handles enrolling of `playerB` if they haven't enrolled yet.
-   *
-   * Emits a {DepositCompleted} event indicating the player who deposited and the amount.
-   * Emits a {GameStarted} event indicating the players and the deposit amount.
-   * 
-   * Requirements:
-   *
-   * - the caller must be an existing player or there is still space for enrolling in the game.
-   * - `playerHasDeposited[msg.sender]` must be false.
-   * - `_depositBetAmount` must equal `betAmount` OR neither player has deposited yet AND
-   *   both players are enrolled and in the game (rematch scenario).
-   * - this contract requires allowance to transfer `_depositBetAmount` tokens
    */
-  function depositBet(uint _depositBetAmount) public {
+  function depositBet(uint _depositBetAmount) external {
     require(playerDataMap[msg.sender].deposited == false, "You have already deposited.");
     require(token.allowance(
       msg.sender,
@@ -213,16 +183,8 @@ contract RockPaperScissorsInstance is Initializable {
 
   /**
    * @dev Starts a rematch by resetting the state variables and setting a bet amount.
-   *
-   * Emits a {RematchRequested} event indicating the player who requested the rematch
-   * and the new bet amount.
-   * 
-   * Requirements:
-   *
-   * - a rematch cannot be started if there are still funds to withdraw.
-   * - a rematch can only begin once there is a winner and the game is no longer active.
    */
-  function startRematch(uint _betAmount) public isValidPlayer(msg.sender) {
+  function startRematch(uint _betAmount) external isValidPlayer(msg.sender) {
     require(winner != address(0) && isActive == false, "The game hasn't finished yet.");
     require(token.balanceOf(address(this)) == 0, "There are still funds to withdraw.");
     betAmount = _betAmount;
@@ -233,15 +195,8 @@ contract RockPaperScissorsInstance is Initializable {
   
   /**
    * @dev Allows the winner to start a rematch with their winnings.
-   * 
-   * Emits a {RematchRequested} event indicating the player who requested the rematch
-   * and the new bet amount.
-   * 
-   * Requirements:
-   * 
-   * - only the winner can start the rematch with winnings
    */
-  function startRematchWithWinnings() public isValidPlayer(msg.sender) {
+  function startRematchWithWinnings() external isValidPlayer(msg.sender) {
     require(msg.sender == winner && isActive == false, "You must be the winner to start a rematch with the winnings.");
     
     uint previousWinningsAmount = token.balanceOf(address(this));
@@ -254,14 +209,7 @@ contract RockPaperScissorsInstance is Initializable {
 
   /**
    * @dev Allows a player to withdraw deposited tokens if done before the game has started.
-   *
-   * Emits a {WithdrawFunds} event indicating the player who withdrew, the amount and the reason.
-   *
-   * Requirements:
-   * 
-   * - the caller cannot withdraw if the game is active
    */
-  function withdrawBeforeGameStarts() public {
     require(isActive == false, "You can't withdraw once the game has started.");
     require(playerDataMap[msg.sender].deposited == true, "You haven't deposited yet.");
     require(winner == address(0), "You can't withdraw when there's a winner.");
@@ -277,14 +225,8 @@ contract RockPaperScissorsInstance is Initializable {
    * @dev Allows a player to incentivize an uncooperative opponent. Calling this function
    * gives the opponent an hour to make a move otherwise the caller will be able to 
    * withdraw the deposited funds.
-   *
-   * Emits a {WithdrawFunds} event indicating the player who withdrew, the amount and the reason.
-   *
-   * Requirements:
-   * 
-   * - the caller has to have made a move AND their opponent has not yet
    */
-  function incentivizeUser() public isValidPlayer(msg.sender) canIncentivizeOpponent() {
+  function incentivizeUser() external isValidPlayer(msg.sender) canIncentivizeOpponent() {
     uint contractTokenBalance = token.balanceOf(address(this));
 
     if (incentiveStartTime == 0) {
@@ -323,9 +265,6 @@ contract RockPaperScissorsInstance is Initializable {
   /**
    * @dev Resets the game in the event of a tie or ends the game and declares
    * a winner if someone has won.
-   *
-   * Emits a {GameOutcome} event indicating the winning address and winning move.
-   *
    */
   function endGameOrResetMoves(address _winningAddress) internal {
     if (_winningAddress == address(0)) {
@@ -344,9 +283,6 @@ contract RockPaperScissorsInstance is Initializable {
 
   /**
    * @dev Resets players moves.
-   *
-   * Emits a {MovesReset} event indicating the all players moves have been reset.
-   *
    */
   function resetPlayerMoves() internal {
       delete playerDataMap[playerA].move;
