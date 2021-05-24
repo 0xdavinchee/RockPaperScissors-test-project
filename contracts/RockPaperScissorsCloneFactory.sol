@@ -9,18 +9,26 @@ contract RockPaperScissorsCloneFactory {
 
   event GameCreated(
     address indexed _creator,
-    address _contractAddress,
-    address _tokenAddress,
-    uint _betAmount
+    address indexed _contractAddress,
+    address indexed _tokenAddress,
+    uint256 _betAmount
   );
 
   constructor(address _address) {
     rockPaperScissorsImplementationAddress = _address;
   }
 
-  function createRockPaperScissorsInstance(address _creator, address _tokenAddress, uint _betAmount) external returns (address) {
+  function createRockPaperScissorsInstance(
+    address _creator,
+    address _tokenAddress,
+    uint256 _betAmount
+  ) external returns (address) {
     address cloneAddress = Clones.clone(rockPaperScissorsImplementationAddress);
-    RockPaperScissorsInstance(cloneAddress).initialize(_creator, _tokenAddress, _betAmount);
+    RockPaperScissorsInstance(cloneAddress).initialize(
+      _creator,
+      _tokenAddress,
+      _betAmount
+    );
 
     emit GameCreated(_creator, cloneAddress, _tokenAddress, _betAmount);
     return cloneAddress;

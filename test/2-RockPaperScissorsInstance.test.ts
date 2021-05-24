@@ -91,8 +91,9 @@ describe("RockPaperScissorsInstance Tests", () => {
     playerAMove: number,
     playerBMove: number
   ) => {
-    const { salt: playerASalt } = await submitMove(playerA, playerAMove);
-    const { salt: playerBSalt } = await submitMove(playerB, playerBMove);
+    const promiseA = submitMove(playerA, playerAMove);
+    const promiseB = submitMove(playerB, playerBMove);
+    const [{ salt: playerASalt },{ salt: playerBSalt }] = await Promise.all([promiseA, promiseB]);
 
     await revealMove(playerA, playerAMove, playerASalt);
     await revealMove(playerB, playerBMove, playerBSalt);
@@ -337,7 +338,7 @@ describe("RockPaperScissorsInstance Tests", () => {
   describe("Withdraw Edge Cases", () => {
     it("Player should be able to withdraw before game starts.", async () => {
       await approveTokenAndDepositBet(playerA, INITIAL_BET_AMOUNT);
-      await expect(rpsInstance.withdrawBeforeGameStarts())
+      await expect(rpsInstance.connect(playerA).withdrawBeforeGameStarts())
         .to.emit(rpsInstance, "WithdrawFunds")
         .withArgs(
           playerA.address,
@@ -347,7 +348,7 @@ describe("RockPaperScissorsInstance Tests", () => {
     });
 
     it("Player should not be able to withdraw before game starts if they haven't deposited.", async () => {
-      await expect(rpsInstance.withdrawBeforeGameStarts()).to.be.revertedWith(
+      await expect(rpsInstance.connect(playerA).withdrawBeforeGameStarts()).to.be.revertedWith(
         "You haven't deposited yet."
       );
     });
@@ -360,7 +361,7 @@ describe("RockPaperScissorsInstance Tests", () => {
     });
 
     it("Player should not be able to withdraw before game starts if game has started.", async () => {
-      await expect(rpsInstance.withdrawBeforeGameStarts()).to.be.revertedWith(
+      await expect(rpsInstance.connect(playerA).withdrawBeforeGameStarts()).to.be.revertedWith(
         "You can't withdraw once the game has started."
       );
     });
@@ -392,9 +393,8 @@ describe("RockPaperScissorsInstance Tests", () => {
 
     it("Player should be able to incentivize uncooperative opponent.", async () => {
       await submitMove(playerA, 0);
-      await rpsInstance.incentivizeUser();
-      expect(
-        await (await rpsInstance.incentiveStartTime()).toNumber()
+      await rpsInstance.connect(playerA).incentivizeUser();
+      expect((await rpsInstance.connect(playerA).incentiveStartTime()).toNumber()
       ).to.not.eql(0);
     });
 
@@ -416,7 +416,7 @@ describe("RockPaperScissorsInstance Tests", () => {
       await submitMove(playerA, 0);
       await rpsInstance.connect(playerA).incentivizeUser();
       await submitMove(playerB, 1);
-      expect(await (await rpsInstance.incentiveStartTime()).toNumber()).to.eql(
+      expect((await rpsInstance.connect(playerA).incentiveStartTime()).toNumber()).to.eql(
         0
       );
     });
@@ -516,16 +516,20 @@ describe("RockPaperScissorsInstance Tests", () => {
     });
   
     it("Game can be completed and funds withdrawn after winnings rematch.", async () => {
-      const NEW_BET_AMOUNT = INITIAL_BET_AMOUNT * 2;
       await submitMovesAndReveal(playerA, playerB, 0, 2);
-      await expect(rpsInstance.connect(playerA).withdrawWinnings())
+      await rpsInstance.connect(playerA).startRematchWithWinnings();
+      const winningsBet = (await rpsToken.balanceOf(rpsInstance.address)).toNumber();
+
+      await approveTokenAndDepositBet(playerB, winningsBet);
+      await submitMovesAndReveal(playerA, playerB, 0, 1);
+      await expect(rpsInstance.connect(playerB).withdrawWinnings())
+        .to.emit(rpsInstance, "WithdrawFunds")
         .withArgs(
-          playerA.address,
-          NEW_BET_AMOUNT * 2,
+          playerB.address,
+          winningsBet * 2,
           WithdrawalReason.WinningWithdrawal
         );
     });
   });
 });
 
-// still have to test deposit rematch case (should allow deposits)
