@@ -11,6 +11,12 @@ import {
   RpsToken,
 } from "../typechain";
 
+enum WithdrawalReason {
+  EarlyWithdrawal,
+  WinningWithdrawal,
+  IncentivizedWithdrawal,
+}
+
 describe("RockPaperScissorsInstance Tests", () => {
   const INITIAL_BET_AMOUNT = 10;
   let contractCreator: SignerWithAddress;
@@ -23,6 +29,16 @@ describe("RockPaperScissorsInstance Tests", () => {
   let rockPaperScissorsInstance: RockPaperScissorsInstance;
   let rpsTokenFactory: RpsTokenFactory;
   let rpsToken: RpsToken;
+
+  const approveTokenAndDepositBet = async (
+    player: SignerWithAddress,
+    amount: number
+  ) => {
+    await rpsToken
+      .connect(player)
+      .approve(rockPaperScissorsInstance.address, amount);
+    await rockPaperScissorsInstance.connect(player).depositBet(amount);
+  };
 
   const createAndSetRPSInstance = async (
     player: SignerWithAddress,
@@ -57,6 +73,35 @@ describe("RockPaperScissorsInstance Tests", () => {
       [move, salt]
     );
     return { hashedMove, salt };
+  };
+
+  const submitMove = async (player: SignerWithAddress, move: number) => {
+    const { hashedMove: playerHashedMove, salt } = await getHashedMove(move);
+    const hashedMove = ethers.utils.solidityKeccak256(["uint"], [move]);
+    await rockPaperScissorsInstance
+      .connect(player)
+      .submitMove(playerHashedMove);
+
+    return { hashedMove, salt };
+  };
+  const revealMove = async (
+    player: SignerWithAddress,
+    move: number,
+    salt: string
+  ) => {
+    await rockPaperScissorsInstance.connect(player).revealMove(move, salt);
+  };
+  const submitMovesAndReveal = async (
+    playerA: SignerWithAddress,
+    playerB: SignerWithAddress,
+    playerAMove: number,
+    playerBMove: number
+  ) => {
+    const { salt: playerASalt } = await submitMove(playerA, playerAMove);
+    const { salt: playerBSalt } = await submitMove(playerB, playerBMove);
+
+    await revealMove(playerA, playerAMove, playerASalt);
+    await revealMove(playerB, playerBMove, playerBSalt);
   };
 
   before(async () => {
@@ -223,7 +268,7 @@ describe("RockPaperScissorsInstance Tests", () => {
         playerBAddress,
         playerADataMap["deposited"],
         playerBDataMap["deposited"],
-      ]).to.be.eql([playerA.address, playerB.address, true, true]);
+      ]).to.eql([playerA.address, playerB.address, true, true]);
     });
 
     it("Should emit DepositCompleted on successful deposit.", async () => {
@@ -309,7 +354,7 @@ describe("RockPaperScissorsInstance Tests", () => {
       const playerBDataMap = await rockPaperScissorsInstance.playerDataMap(
         playerB.address
       );
-      expect([playerAHashedMove, playerBHashedMove]).to.be.eql([
+      expect([playerAHashedMove, playerBHashedMove]).to.eql([
         playerADataMap["move"],
         playerBDataMap["move"],
       ]);
@@ -371,7 +416,7 @@ describe("RockPaperScissorsInstance Tests", () => {
       await rockPaperScissorsInstance
         .connect(playerB)
         .submitMove(playerHashedMove);
-        const { salt: incorrectSalt } = await getHashedMove(0);
+      const { salt: incorrectSalt } = await getHashedMove(0);
       await expect(
         rockPaperScissorsInstance.connect(playerB).revealMove(0, incorrectSalt)
       ).to.be.revertedWith(
@@ -391,38 +436,18 @@ describe("RockPaperScissorsInstance Tests", () => {
         rockPaperScissorsInstance.connect(playerA).revealMove(3, salt)
       ).to.be.revertedWith("You must pick rock, paper or scissors.");
     });
+
+    it("Should not allow non-player to submit a move.", async () => {
+      const { hashedMove: playerHashedMove, salt } = await getHashedMove(0);
+      await expect(
+        rockPaperScissorsInstance
+          .connect(contractCreator)
+          .submitMove(playerHashedMove)
+      ).to.be.revertedWith("You are not a part of this game.");
+    });
   });
 
   describe("Game Logic/Winner Tests", () => {
-    const submitMove = async (player: SignerWithAddress, move: number) => {
-      const { hashedMove: playerHashedMove, salt } = await getHashedMove(move);
-      const hashedMove = ethers.utils.solidityKeccak256(["uint"], [move]);
-      await rockPaperScissorsInstance
-        .connect(player)
-        .submitMove(playerHashedMove);
-
-      return { hashedMove, salt };
-    };
-    const revealMove = async (
-      player: SignerWithAddress,
-      move: number,
-      salt: string
-    ) => {
-      await rockPaperScissorsInstance.connect(player).revealMove(move, salt);
-    };
-    const submitMovesAndReveal = async (
-      playerA: SignerWithAddress,
-      playerB: SignerWithAddress,
-      playerAMove: number,
-      playerBMove: number
-    ) => {
-      const { salt: playerASalt } = await submitMove(playerA, playerAMove);
-      const { salt: playerBSalt } = await submitMove(playerB, playerBMove);
-
-      await revealMove(playerA, playerAMove, playerASalt);
-      await revealMove(playerB, playerBMove, playerBSalt);
-    };
-
     beforeEach(async () => {
       await rpsToken
         .connect(playerA)
@@ -438,7 +463,7 @@ describe("RockPaperScissorsInstance Tests", () => {
         .connect(playerB)
         .depositBet(INITIAL_BET_AMOUNT);
     });
-  
+
     it("Should be a tie if players use the same move", async () => {
       await submitMovesAndReveal(playerA, playerB, 0, 0);
       const winner = await rockPaperScissorsInstance.winner();
@@ -452,7 +477,7 @@ describe("RockPaperScissorsInstance Tests", () => {
         winner,
         playerADataMap["move"],
         playerBDataMap["move"],
-      ]).to.be.eql([
+      ]).to.eql([
         ethers.constants.AddressZero,
         ethers.constants.HashZero,
         ethers.constants.HashZero,
@@ -462,13 +487,155 @@ describe("RockPaperScissorsInstance Tests", () => {
     it("Player A should win with a winning hand", async () => {
       await submitMovesAndReveal(playerA, playerB, 0, 2);
       const winner = await rockPaperScissorsInstance.winner();
-      expect(winner).to.be.eql(playerA.address);
+      expect(winner).to.eql(playerA.address);
     });
 
     it("Player B should win with a winning hand", async () => {
       await submitMovesAndReveal(playerA, playerB, 0, 1);
       const winner = await rockPaperScissorsInstance.winner();
-      expect(winner).to.be.eql(playerB.address);
+      expect(winner).to.eql(playerB.address);
+    });
+  });
+
+  describe("Withdraw Tests", () => {
+    beforeEach(async () => {});
+
+    it("Player should be able to withdraw before game starts.", async () => {
+      await rpsToken
+        .connect(playerA)
+        .approve(rockPaperScissorsInstance.address, INITIAL_BET_AMOUNT);
+      await rockPaperScissorsInstance
+        .connect(playerA)
+        .depositBet(INITIAL_BET_AMOUNT);
+      await expect(rockPaperScissorsInstance.withdrawBeforeGameStarts())
+        .to.emit(rockPaperScissorsInstance, "WithdrawFunds")
+        .withArgs(
+          playerA.address,
+          INITIAL_BET_AMOUNT,
+          WithdrawalReason.EarlyWithdrawal
+        );
+    });
+
+    it("Player should not be able to withdraw before game starts if they haven't deposited.", async () => {
+      await expect(
+        rockPaperScissorsInstance.withdrawBeforeGameStarts()
+      ).to.be.revertedWith("You haven't deposited yet.");
+    });
+
+    it("Player should not be able to withdraw before game starts if game has started.", async () => {
+      await approveTokenAndDepositBet(playerA, INITIAL_BET_AMOUNT);
+      await approveTokenAndDepositBet(playerB, INITIAL_BET_AMOUNT);
+      await expect(
+        rockPaperScissorsInstance.withdrawBeforeGameStarts()
+      ).to.be.revertedWith("You can't withdraw once the game has started.");
+    });
+
+    it("Winner should be able to withdraw.", async () => {
+      await approveTokenAndDepositBet(playerA, INITIAL_BET_AMOUNT);
+      await approveTokenAndDepositBet(playerB, INITIAL_BET_AMOUNT);
+      await submitMovesAndReveal(playerA, playerB, 0, 2);
+      await expect(
+        rockPaperScissorsInstance.connect(playerA).withdrawWinnings()
+      )
+        .to.emit(rockPaperScissorsInstance, "WithdrawFunds")
+        .withArgs(
+          playerA.address,
+          INITIAL_BET_AMOUNT * 2,
+          WithdrawalReason.WinningWithdrawal
+        );
+    });
+
+    it("Loser should not be able to withdraw.", async () => {
+      await approveTokenAndDepositBet(playerA, INITIAL_BET_AMOUNT);
+      await approveTokenAndDepositBet(playerB, INITIAL_BET_AMOUNT);
+      await submitMovesAndReveal(playerA, playerB, 2, 1);
+      await expect(
+        rockPaperScissorsInstance.connect(playerB).withdrawWinnings()
+      ).to.be.revertedWith("You are not allowed to withdraw.");
+    });
+
+    it("Non-players should not be able to withdraw.", async () => {
+      await approveTokenAndDepositBet(playerA, INITIAL_BET_AMOUNT);
+      await approveTokenAndDepositBet(playerB, INITIAL_BET_AMOUNT);
+      await submitMovesAndReveal(playerA, playerB, 1, 2);
+      await expect(
+        rockPaperScissorsInstance.connect(contractCreator).withdrawWinnings()
+      ).to.be.revertedWith("You are not allowed to withdraw.");
+    });
+
+    it("Player should be able to incentivize uncooperative opponent.", async () => {
+      await approveTokenAndDepositBet(playerA, INITIAL_BET_AMOUNT);
+      await approveTokenAndDepositBet(playerB, INITIAL_BET_AMOUNT);
+      await submitMove(playerA, 0);
+      await rockPaperScissorsInstance.incentivizeUser();
+      expect(
+        await (await rockPaperScissorsInstance.incentiveStartTime()).toNumber()
+      ).to.not.eql(0);
+    });
+
+    it("Player should not be able to incentivize if they haven't made a move.", async () => {
+      await approveTokenAndDepositBet(playerA, INITIAL_BET_AMOUNT);
+      await approveTokenAndDepositBet(playerB, INITIAL_BET_AMOUNT);
+      await expect(
+        rockPaperScissorsInstance.connect(playerA).incentivizeUser()
+      ).to.be.revertedWith("You are not allowed to incentivize your opponent.");
+    });
+
+    it("Player should not be able to incentivize cooperative opponent.", async () => {
+      await approveTokenAndDepositBet(playerA, INITIAL_BET_AMOUNT);
+      await approveTokenAndDepositBet(playerB, INITIAL_BET_AMOUNT);
+      await submitMove(playerA, 0);
+      await submitMove(playerB, 1);
+      await expect(
+        rockPaperScissorsInstance.connect(playerA).incentivizeUser()
+      ).to.be.revertedWith("You are not allowed to incentivize your opponent.");
+    });
+
+    it("Opponent can become cooperative.", async () => {
+      await approveTokenAndDepositBet(playerA, INITIAL_BET_AMOUNT);
+      await approveTokenAndDepositBet(playerB, INITIAL_BET_AMOUNT);
+      await submitMove(playerA, 0);
+      await rockPaperScissorsInstance.connect(playerA).incentivizeUser();
+      await submitMove(playerB, 1);
+      expect(
+        await (await rockPaperScissorsInstance.incentiveStartTime()).toNumber()
+      ).to.eql(0);
+    });
+  });
+
+  describe("Rematch Tests", () => {
+    it("Winning player should be able to start a rematch with same amount.", async () => {
+      await submitMovesAndReveal(playerA, playerB, 0, 2);
+      await rockPaperScissorsInstance.connect(playerA).withdrawWinnings();
+      await expect(rockPaperScissorsInstance)
+    });
+    it("Losing player should be able to start a rematch with a different amount.", async () => {
+      await submitMovesAndReveal(playerA, playerB, 0, 1);
+
+    });
+    it("WinningPlayer should be able to start a rematch with different amount.", async () => {
+      await submitMovesAndReveal(playerA, playerB, 0, 2);
+
+    });
+    it("Player should not be able to start a rematch if there are winnings.", async () => {
+      await submitMovesAndReveal(playerA, playerB, 0, 2);
+
+    });
+    it("Player should not be able to start a rematch if game hasn't finished.", async () => {
+      await submitMovesAndReveal(playerA, playerB, 0, 2);
+
+    });
+    it("Winning player should be able to start a rematch with winnings.", async () => {
+      await submitMovesAndReveal(playerA, playerB, 0, 2);
+
+    });
+    it("Losing player should not be able to start a rematch with winnings.", async () => {
+      await submitMovesAndReveal(playerA, playerB, 0, 2);
+
+    });
+    it("Game can be completed and funds withdrawn after rematch.", async () => {
+      await submitMovesAndReveal(playerA, playerB, 0, 2);
+
     });
   });
 });

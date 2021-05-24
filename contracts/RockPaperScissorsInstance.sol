@@ -44,11 +44,6 @@ contract RockPaperScissorsInstance is Initializable {
     _;
   }
 
-  modifier canWithdrawWinnings() {
-    require(msg.sender == winner && isActive == false, "You are not allowed to withdraw.");
-    _;
-  }
-
   modifier canIncentivizeOpponent() {
     address opponentAddress = msg.sender == playerA
       ? playerB
@@ -153,10 +148,10 @@ contract RockPaperScissorsInstance is Initializable {
    * Emits a {WithdrawFunds} event indicating the player who withdrew, the amount and the reason.
    *
    */
-  function withdrawWinnings() public canWithdrawWinnings() {
+  function withdrawWinnings() public {
+    require(msg.sender == winner && isActive == false, "You are not allowed to withdraw.");
     uint winningAmount = token.balanceOf(address(this));
-    token.approve(msg.sender, winningAmount);
-    token.transferFrom(address(this), msg.sender, winningAmount);
+    token.transfer(msg.sender, winningAmount);
 
     emit WithdrawFunds(msg.sender, winningAmount, WithdrawalReason.WinningWithdrawal);
   }
@@ -230,9 +225,6 @@ contract RockPaperScissorsInstance is Initializable {
   function startRematch(uint _betAmount) public isValidPlayer(msg.sender) {
     require(token.balanceOf(address(this)) == 0, "There are still funds to withdraw.");
     require(winner != address(0) && isActive == false, "The game hasn't finished yet.");
-
-    delete playerDataMap[playerA];
-    delete playerDataMap[playerB];
     betAmount = _betAmount;
     winner = address(0);
 
@@ -251,7 +243,7 @@ contract RockPaperScissorsInstance is Initializable {
    * - only the winner can start the rematch with winnings
    */
   function startRematchWithWinnings() public {
-    require(msg.sender == winner, "You must be the winner to start a rematch with the winnings.");
+    require(msg.sender == winner && isActive == false, "You must be the winner to start a rematch with the winnings.");
     
     uint previousWinningsAmount = token.balanceOf(address(this));
     startRematch(previousWinningsAmount);
@@ -272,10 +264,9 @@ contract RockPaperScissorsInstance is Initializable {
   function withdrawBeforeGameStarts() public {
     require(isActive == false, "You can't withdraw once the game has started.");
     require(playerDataMap[msg.sender].deposited == true, "You haven't deposited yet.");
+    require(winner == address(0), "You can't withdraw when there's a winner.");
     uint contractTokenBalance = token.balanceOf(address(this));
-    
-    token.approve(msg.sender, contractTokenBalance);
-    bool success = token.transferFrom(address(this), msg.sender, contractTokenBalance);
+    bool success = token.transfer(msg.sender, contractTokenBalance);
     if (success) {
       playerDataMap[msg.sender].deposited = false;
       emit WithdrawFunds(msg.sender, contractTokenBalance, WithdrawalReason.EarlyWithdrawal);
@@ -303,8 +294,7 @@ contract RockPaperScissorsInstance is Initializable {
     if (incentiveStartTime != 0 && ((block.timestamp - incentiveStartTime) > 1 hours)) {
       isActive = false;
       winner = msg.sender;
-      token.approve(msg.sender, contractTokenBalance);
-      token.transferFrom(address(this), msg.sender, contractTokenBalance);
+      token.transfer(msg.sender, contractTokenBalance);
       emit WithdrawFunds(msg.sender, contractTokenBalance, WithdrawalReason.IncentivizedWithdrawal);
     }
   }
@@ -344,6 +334,8 @@ contract RockPaperScissorsInstance is Initializable {
 
     if (_winningAddress != address(0)) {
       isActive = false;
+      delete playerDataMap[playerA];
+      delete playerDataMap[playerB];
       winner = _winningAddress;
     }
 
