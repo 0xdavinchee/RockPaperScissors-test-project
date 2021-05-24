@@ -604,35 +604,53 @@ describe("RockPaperScissorsInstance Tests", () => {
   });
 
   describe("Rematch Tests", () => {
+    beforeEach(async () => {
+      await approveTokenAndDepositBet(playerA, INITIAL_BET_AMOUNT);
+      await approveTokenAndDepositBet(playerB, INITIAL_BET_AMOUNT);
+    });
+
     it("Winning player should be able to start a rematch with same amount.", async () => {
       await submitMovesAndReveal(playerA, playerB, 0, 2);
       await rockPaperScissorsInstance.connect(playerA).withdrawWinnings();
-      await expect(rockPaperScissorsInstance)
+      await expect(rockPaperScissorsInstance.connect(playerA).startRematch(INITIAL_BET_AMOUNT))
+        .to.emit(rockPaperScissorsInstance, "RematchRequested")
+        .withArgs(playerA.address, INITIAL_BET_AMOUNT);
     });
+
     it("Losing player should be able to start a rematch with a different amount.", async () => {
       await submitMovesAndReveal(playerA, playerB, 0, 1);
-
+      await rockPaperScissorsInstance.connect(playerB).withdrawWinnings();
+      await expect(rockPaperScissorsInstance.connect(playerA).startRematch(INITIAL_BET_AMOUNT * 2))
+        .to.emit(rockPaperScissorsInstance, "RematchRequested")
+        .withArgs(playerA.address, INITIAL_BET_AMOUNT * 2);
     });
-    it("WinningPlayer should be able to start a rematch with different amount.", async () => {
-      await submitMovesAndReveal(playerA, playerB, 0, 2);
 
-    });
     it("Player should not be able to start a rematch if there are winnings.", async () => {
       await submitMovesAndReveal(playerA, playerB, 0, 2);
-
+      await expect(rockPaperScissorsInstance.connect(playerA).startRematch(INITIAL_BET_AMOUNT))
+        .to.be.revertedWith("There are still funds to withdraw.");
     });
+
     it("Player should not be able to start a rematch if game hasn't finished.", async () => {
-      await submitMovesAndReveal(playerA, playerB, 0, 2);
-
+      await submitMove(playerA, 0);
+      await expect(rockPaperScissorsInstance.connect(playerA).startRematch(INITIAL_BET_AMOUNT))
+        .to.be.revertedWith("The game hasn't finished yet.");
     });
+
     it("Winning player should be able to start a rematch with winnings.", async () => {
       await submitMovesAndReveal(playerA, playerB, 0, 2);
+      await expect(rockPaperScissorsInstance.connect(playerA).startRematchWithWinnings())
+        .to.emit(rockPaperScissorsInstance, "RematchRequested")
+        .withArgs(playerA.address, INITIAL_BET_AMOUNT * 2);
 
     });
+
     it("Losing player should not be able to start a rematch with winnings.", async () => {
-      await submitMovesAndReveal(playerA, playerB, 0, 2);
-
+      await submitMovesAndReveal(playerA, playerB, 0, 1);
+      await expect(rockPaperScissorsInstance.connect(playerA).startRematchWithWinnings())
+        .to.be.revertedWith("You must be the winner to start a rematch with the winnings.");
     });
+
     it("Game can be completed and funds withdrawn after rematch.", async () => {
       await submitMovesAndReveal(playerA, playerB, 0, 2);
 

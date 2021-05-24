@@ -223,8 +223,8 @@ contract RockPaperScissorsInstance is Initializable {
    * - a rematch can only begin once there is a winner and the game is no longer active.
    */
   function startRematch(uint _betAmount) public isValidPlayer(msg.sender) {
-    require(token.balanceOf(address(this)) == 0, "There are still funds to withdraw.");
     require(winner != address(0) && isActive == false, "The game hasn't finished yet.");
+    require(token.balanceOf(address(this)) == 0, "There are still funds to withdraw.");
     betAmount = _betAmount;
     winner = address(0);
 
@@ -233,7 +233,6 @@ contract RockPaperScissorsInstance is Initializable {
   
   /**
    * @dev Allows the winner to start a rematch with their winnings.
-   * Calls {startRematch} to reset state variables for a rematch.
    * 
    * Emits a {RematchRequested} event indicating the player who requested the rematch
    * and the new bet amount.
@@ -242,11 +241,12 @@ contract RockPaperScissorsInstance is Initializable {
    * 
    * - only the winner can start the rematch with winnings
    */
-  function startRematchWithWinnings() public {
+  function startRematchWithWinnings() public isValidPlayer(msg.sender) {
     require(msg.sender == winner && isActive == false, "You must be the winner to start a rematch with the winnings.");
     
     uint previousWinningsAmount = token.balanceOf(address(this));
-    startRematch(previousWinningsAmount);
+    betAmount = previousWinningsAmount;
+    winner = address(0);
     playerDataMap[msg.sender].deposited = true;
 
     emit RematchRequested(msg.sender, previousWinningsAmount);
