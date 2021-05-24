@@ -34,7 +34,7 @@ contract RockPaperScissorsCloneFactory {
     return cloneAddress;
   }
 
-  function getImplementationAddress() public view returns (address) {
+  function getImplementationAddress() external view returns (address) {
     return rockPaperScissorsImplementationAddress;
   }
 }

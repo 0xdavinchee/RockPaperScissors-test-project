@@ -77,7 +77,7 @@ contract RockPaperScissorsInstance is Initializable {
     address _creatorPlayer,
     address _tokenAddress,
     uint256 _betAmount
-  ) public initializer {
+  ) external initializer {
     token = IERC20(_tokenAddress);
     playerA = _creatorPlayer;
     betAmount = _betAmount;
