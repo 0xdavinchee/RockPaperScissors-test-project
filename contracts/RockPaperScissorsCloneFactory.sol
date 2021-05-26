@@ -5,36 +5,37 @@ import "./RockPaperScissorsInstance.sol";
 import "@openzeppelin/contracts/proxy/Clones.sol";
 
 contract RockPaperScissorsCloneFactory {
-  address immutable rockPaperScissorsImplementationAddress;
+    address immutable rockPaperScissorsImplementationAddress;
 
-  event GameCreated(
-    address indexed _creator,
-    address indexed _contractAddress,
-    address indexed _tokenAddress,
-    uint256 _betAmount
-  );
-
-  constructor(address _address) {
-    rockPaperScissorsImplementationAddress = _address;
-  }
-
-  function createRockPaperScissorsInstance(
-    address _creator,
-    address _tokenAddress,
-    uint256 _betAmount
-  ) external returns (address) {
-    address cloneAddress = Clones.clone(rockPaperScissorsImplementationAddress);
-    RockPaperScissorsInstance(cloneAddress).initialize(
-      _creator,
-      _tokenAddress,
-      _betAmount
+    event GameCreated(
+        address indexed _creator,
+        address indexed _contractAddress,
+        address indexed _tokenAddress,
+        uint256 _betAmount
     );
 
-    emit GameCreated(_creator, cloneAddress, _tokenAddress, _betAmount);
-    return cloneAddress;
-  }
+    constructor(address _address) {
+        rockPaperScissorsImplementationAddress = _address;
+    }
 
-  function getImplementationAddress() external view returns (address) {
-    return rockPaperScissorsImplementationAddress;
-  }
+    function createRockPaperScissorsInstance(
+        address _creator,
+        address _tokenAddress,
+        uint256 _betAmount
+    ) external returns (address) {
+        address cloneAddress =
+            Clones.clone(rockPaperScissorsImplementationAddress);
+        RockPaperScissorsInstance(cloneAddress).initialize(
+            _creator,
+            _tokenAddress,
+            _betAmount
+        );
+
+        emit GameCreated(_creator, cloneAddress, _tokenAddress, _betAmount);
+        return cloneAddress;
+    }
+
+    function getImplementationAddress() external view returns (address) {
+        return rockPaperScissorsImplementationAddress;
+    }
 }
