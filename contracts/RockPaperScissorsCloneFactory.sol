@@ -14,8 +14,11 @@ contract RockPaperScissorsCloneFactory {
         uint256 _betAmount
     );
 
+    address public creator;
+
     constructor(address _address) {
         rockPaperScissorsImplementationAddress = _address;
+        creator = msg.sender;
     }
 
     function createRockPaperScissorsInstance(

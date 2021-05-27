@@ -1,5 +1,6 @@
 import { HardhatRuntimeEnvironment } from "hardhat/types";
 import { DeployFunction } from "hardhat-deploy/types";
+import { contract } from "../utils/constants";
 
 const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   const { deployments, getNamedAccounts } = hre;
@@ -7,12 +8,12 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
 
   const { deployer } = await getNamedAccounts();
 
-  await deploy("RPSToken", {
+  await deploy(contract.RPSToken, {
     from: deployer,
     args: [10000],
-    log: true
+    log: true,
   });
 };
 
 export default func;
-func.tags = ["Token"];
+func.tags = [contract.RPSToken];

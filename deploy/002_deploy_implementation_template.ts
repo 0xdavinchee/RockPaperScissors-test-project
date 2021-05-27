@@ -1,5 +1,6 @@
 import { HardhatRuntimeEnvironment } from "hardhat/types";
 import { DeployFunction } from "hardhat-deploy/types";
+import { contract } from "../utils/constants";
 
 const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   const { deployments, getNamedAccounts } = hre;
@@ -7,10 +8,10 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
 
   const { deployer } = await getNamedAccounts();
 
-  await deploy("RockPaperScissorsInstance", {
+  await deploy(contract.RockPaperScissorsInstance, {
     from: deployer,
   });
 };
 
 export default func;
-func.tags = ["RPSTemplate"];
+func.tags = [contract.RockPaperScissorsInstance];
