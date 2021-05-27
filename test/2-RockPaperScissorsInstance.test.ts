@@ -8,6 +8,7 @@ import {
 } from "../typechain";
 import { setupUser, setupUsers } from "./utils";
 import { contract, INITIAL_BET_AMOUNT } from "../utils/constants";
+import { Contract } from "@ethersproject/contracts";
 
 enum WithdrawalReason {
   EarlyWithdrawal,
@@ -55,13 +56,17 @@ const setup = deployments.createFixture(
   }
 );
 
-//   const approveTokenAndDepositBet = async (
-//     player: SignerWithAddress,
-//     amount: number
-//   ) => {
-//     await rpsToken.connect(player).approve(rpsInstance.address, amount);
-//     return await rpsInstance.connect(player).depositBet(amount);
-//   };
+const submitTokenAndDepositBet = async <
+  T extends {
+    [contractName: string]: Contract | RockPaperScissorsInstance | RpsToken;
+  }
+>(
+  player: { address: string } & T,
+  amount: number
+) => {
+  await player.RPSToken.approve(player.RPSInstance.address, amount);
+  return player.RPSInstance.depositBet(amount);
+};
 describe("RockPaperScissorsInstance Tests", () => {
   describe("Deposit Tests", () => {
     it("Should allow player A to deposit funds.", async () => {
@@ -70,25 +75,17 @@ describe("RockPaperScissorsInstance Tests", () => {
         RPSInstance.address,
         INITIAL_BET_AMOUNT
       );
-      await expect(players[0].RPSInstance.depositBet(INITIAL_BET_AMOUNT))
+      await expect(submitTokenAndDepositBet(players[0], INITIAL_BET_AMOUNT))
         .to.emit(RPSInstance, "DepositCompleted")
         .withArgs(players[0].address, INITIAL_BET_AMOUNT);
     });
 
     it("Should not allow player to deposit funds twice.", async () => {
-      const { players, RPSInstance } = await setup();
-      await players[0].RPSToken.approve(
-        RPSInstance.address,
-        INITIAL_BET_AMOUNT
-      );
-      await players[0].RPSInstance.depositBet(INITIAL_BET_AMOUNT);
+      const { players } = await setup();
+      submitTokenAndDepositBet(players[0], INITIAL_BET_AMOUNT);
 
-      await players[0].RPSToken.approve(
-        RPSInstance.address,
-        INITIAL_BET_AMOUNT
-      );
       await expect(
-        players[0].RPSInstance.depositBet(INITIAL_BET_AMOUNT)
+        submitTokenAndDepositBet(players[0], INITIAL_BET_AMOUNT)
       ).to.be.revertedWith("You have already deposited.");
     });
 
@@ -100,104 +97,38 @@ describe("RockPaperScissorsInstance Tests", () => {
     });
 
     it("Should not allow player to deposit incorrect token amount.", async () => {
-      const { players, RPSInstance } = await setup();
-      await players[0].RPSToken.approve(
-        RPSInstance.address,
-        INITIAL_BET_AMOUNT * 2
-      );
+      const { players } = await setup();
       await expect(
-        players[0].RPSInstance.depositBet(INITIAL_BET_AMOUNT * 2)
+        submitTokenAndDepositBet(players[0], INITIAL_BET_AMOUNT * 2)
       ).to.be.revertedWith("You've submitted the incorrect bet amount.");
     });
 
     it("Should not allow a player to deposit when game is full.", async () => {
-      const { players, RPSInstance } = await setup();
-      await players[0].RPSToken.approve(
-        RPSInstance.address,
-        INITIAL_BET_AMOUNT
-      );
-      await players[0].RPSInstance.depositBet(INITIAL_BET_AMOUNT);
+      const { players } = await setup();
+      await submitTokenAndDepositBet(players[0], INITIAL_BET_AMOUNT);
 
-      await players[1].RPSToken.approve(
-        RPSInstance.address,
-        INITIAL_BET_AMOUNT
-      );
       await expect(
-        players[1].RPSInstance.depositBet(INITIAL_BET_AMOUNT)
+        submitTokenAndDepositBet(players[1], INITIAL_BET_AMOUNT)
       ).to.be.revertedWith("You are not allowed to deposit.");
     });
 
     it("Should emit DepositCompleted on successful deposit.", async () => {
       const { players, RPSInstance } = await setup();
-      await players[0].RPSToken.approve(
-        RPSInstance.address,
-        INITIAL_BET_AMOUNT
-      );
-
-      await expect(players[0].RPSInstance.depositBet(INITIAL_BET_AMOUNT))
+      await expect(submitTokenAndDepositBet(players[0], INITIAL_BET_AMOUNT))
         .to.emit(RPSInstance, "DepositCompleted")
         .withArgs(players[0].address, INITIAL_BET_AMOUNT);
     });
 
     it("Should start the game once both players have deposited.", async () => {
       const { deployer, players, RPSInstance, RPSToken } = await setup();
-      await RPSToken.approve(RPSInstance.address, INITIAL_BET_AMOUNT);
-      await expect(RPSInstance.depositBet(INITIAL_BET_AMOUNT));
+      await submitTokenAndDepositBet(deployer, INITIAL_BET_AMOUNT);
 
-      await players[0].RPSToken.approve(
-        RPSInstance.address,
-        INITIAL_BET_AMOUNT
-      );
-      await expect(players[0].RPSInstance.depositBet(INITIAL_BET_AMOUNT))
+      await expect(submitTokenAndDepositBet(players[0], INITIAL_BET_AMOUNT))
         .to.emit(RPSInstance, "GameStarted")
         .withArgs(deployer.address, players[0].address, INITIAL_BET_AMOUNT);
     });
   });
 });
-
-// describe("RockPaperScissorsInstance Tests", () => {
-
-//   const getHashedMove = async (move: number) => {
-//     const now = new Date().getMilliseconds();
-//     const salt = ethers.utils.id(now.toString());
-//     const hashedMove = ethers.utils.solidityKeccak256(
-//       ["uint8", "bytes32"],
-//       [move, salt]
-//     );
-//     return { hashedMove, salt };
-//   };
-
-//   const submitMove = async (player: SignerWithAddress, move: number) => {
-//     const { hashedMove, salt } = await getHashedMove(move);
-//     await rpsInstance.connect(player).submitMove(hashedMove);
-
-//     return { hashedMove, salt };
-//   };
-//   const revealMove = async (
-//     player: SignerWithAddress,
-//     move: number,
-//     salt: string
-//   ) => {
-//     await rpsInstance.connect(player).revealMove(move, salt);
-//   };
-//   const submitMovesAndReveal = async (
-//     playerA: SignerWithAddress,
-//     playerB: SignerWithAddress,
-//     playerAMove: number,
-//     playerBMove: number
-//   ) => {
-//     const promiseA = submitMove(playerA, playerAMove);
-//     const promiseB = submitMove(playerB, playerBMove);
-//     const [{ salt: playerASalt },{ salt: playerBSalt }] = await Promise.all([promiseA, promiseB]);
-
-//     await revealMove(playerA, playerAMove, playerASalt);
-//     await revealMove(playerB, playerBMove, playerBSalt);
-//   };
-//   describe("Initialize Test", () => {
-
-//   describe("Deposit Tests", () => {
-//   });
-
 //   describe("Submit/Reveal Move Tests", () => {
 //     beforeEach(async () => {
 //       await approveTokenAndDepositBet(playerA, INITIAL_BET_AMOUNT);
@@ -283,6 +214,45 @@ describe("RockPaperScissorsInstance Tests", () => {
 //       ).to.be.revertedWith("You are not a part of this game.");
 //     });
 //   });
+
+// describe("RockPaperScissorsInstance Tests", () => {
+
+//   const getHashedMove = async (move: number) => {
+//     const now = new Date().getMilliseconds();
+//     const salt = ethers.utils.id(now.toString());
+//     const hashedMove = ethers.utils.solidityKeccak256(
+//       ["uint8", "bytes32"],
+//       [move, salt]
+//     );
+//     return { hashedMove, salt };
+//   };
+
+//   const submitMove = async (player: SignerWithAddress, move: number) => {
+//     const { hashedMove, salt } = await getHashedMove(move);
+//     await rpsInstance.connect(player).submitMove(hashedMove);
+
+//     return { hashedMove, salt };
+//   };
+//   const revealMove = async (
+//     player: SignerWithAddress,
+//     move: number,
+//     salt: string
+//   ) => {
+//     await rpsInstance.connect(player).revealMove(move, salt);
+//   };
+//   const submitMovesAndReveal = async (
+//     playerA: SignerWithAddress,
+//     playerB: SignerWithAddress,
+//     playerAMove: number,
+//     playerBMove: number
+//   ) => {
+//     const promiseA = submitMove(playerA, playerAMove);
+//     const promiseB = submitMove(playerB, playerBMove);
+//     const [{ salt: playerASalt },{ salt: playerBSalt }] = await Promise.all([promiseA, promiseB]);
+
+//     await revealMove(playerA, playerAMove, playerASalt);
+//     await revealMove(playerB, playerBMove, playerBSalt);
+//   };
 
 //   describe("Game Logic/Winner Tests", () => {
 //     beforeEach(async () => {
