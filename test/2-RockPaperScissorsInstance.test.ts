@@ -1,5 +1,5 @@
 import { expect } from "./chai-setup";
-import { deployments, ethers } from "hardhat";
+import hre, { deployments, ethers } from "hardhat";
 
 import {
   RockPaperScissorsCloneFactory,
@@ -351,222 +351,191 @@ describe("RockPaperScissorsInstance Tests", () => {
       ).to.be.revertedWith("You haven't deposited yet.");
     });
   });
+
+
+  describe("Withdraw Tests", () => {
+    it("Player should not be able to withdraw before game starts if game has started.", async () => {
+      const { deployer } = await setup(true);
+      await expect(deployer.RPSInstance.withdrawBeforeGameStarts()).to.be.revertedWith(
+        "You can't withdraw once the game has started."
+      );
+    });
+
+    it("Winner should be able to withdraw.", async () => {
+      const { deployer, players, RPSInstance } = await setup(true);
+      await submitMovesAndReveal(deployer, players[0], 0, 2);
+      await expect(deployer.RPSInstance.withdrawWinnings())
+        .to.emit(RPSInstance, "WithdrawFunds")
+        .withArgs(
+          deployer.address,
+          INITIAL_BET_AMOUNT * 2,
+          WithdrawalReason.WinningWithdrawal
+        );
+    });
+
+    it("Loser should not be able to withdraw.", async () => {
+      const { deployer, players } = await setup(true);
+      await submitMovesAndReveal(deployer, players[0], 2, 1);
+      await expect(
+        players[0].RPSInstance.withdrawWinnings()
+      ).to.be.revertedWith("You are not allowed to withdraw.");
+    });
+
+    it("Non-players should not be able to withdraw.", async () => {
+      const { deployer, players } = await setup(true);
+      await submitMovesAndReveal(deployer, players[0], 1, 2);
+      await expect(
+        players[1].RPSInstance.withdrawWinnings()
+      ).to.be.revertedWith("You are not allowed to withdraw.");
+    });
+
+    it("Player should be able to incentivize uncooperative opponent.", async () => {
+      const { deployer } = await setup(true);
+      await submitMove(deployer, 0);
+      await deployer.RPSInstance.incentivizeUser();
+      expect((await deployer.RPSInstance.incentiveStartTime()).toNumber()
+      ).to.not.eql(0);
+    });
+
+    it("Player should not be able to incentivize if they haven't made a move.", async () => {
+      const { deployer } = await setup(true);
+      await expect(
+        deployer.RPSInstance.incentivizeUser()
+      ).to.be.revertedWith("You are not allowed to incentivize your opponent.");
+    });
+
+    it("Player should not be able to incentivize cooperative opponent.", async () => {
+      const { deployer, players } = await setup(true);
+      await submitMove(deployer, 0);
+      await submitMove(players[0], 1);
+      await expect(deployer.RPSInstance.incentivizeUser()
+      ).to.be.revertedWith("You are not allowed to incentivize your opponent.");
+    });
+
+    it("Opponent can become cooperative.", async () => {
+      const { deployer, players } = await setup(true);
+      await submitMove(deployer, 0);
+      await deployer.RPSInstance.incentivizeUser();
+      await submitMove(players[0], 1);
+      expect((await deployer.RPSInstance.incentiveStartTime()).toNumber()).to.eql(
+        0
+      );
+    });
+
+    // use evm_increase_time
+    it("Player should be able to withdraw funds once time condition is met.", async () => {
+      const { deployer, RPSInstance } = await setup(true);
+      await submitMove(deployer, 0);
+      await deployer.RPSInstance.incentivizeUser();
+      await new Promise((r) => setTimeout(r, 2000));
+      await expect(deployer.RPSInstance.incentivizeUser()).to.emit(
+        RPSInstance,
+        "WithdrawFunds"
+      );
+    });
+
+    it("Player should not be able to withdraw funds if time condition isn't met.", async () => {
+      const { deployer, RPSToken } = await setup(true);
+      await submitMove(deployer, 0);
+      await deployer.RPSInstance.incentivizeUser();
+      await deployer.RPSInstance.incentivizeUser();
+      expect(
+        (await RPSToken.balanceOf(deployer.RPSInstance.address)).toNumber()
+      ).to.be.greaterThan(0);
+    });
+  });
+
+  describe("Rematch Tests", () => {
+    it("Winning player should be able to start a rematch with same amount.", async () => {
+      const { deployer, players, RPSInstance } = await setup(true);
+      await submitMovesAndReveal(deployer, players[0], 0, 2);
+      await RPSInstance.withdrawWinnings();
+      await expect(
+        RPSInstance.startRematch(INITIAL_BET_AMOUNT)
+      )
+        .to.emit(RPSInstance, "RematchRequested")
+        .withArgs(deployer.address, INITIAL_BET_AMOUNT);
+    });
+
+    it("Losing player should be able to start a rematch with a different amount.", async () => {
+      const { deployer, players, RPSInstance } = await setup(true);
+      await submitMovesAndReveal(deployer, players[0], 0, 1);
+      await players[0].RPSInstance.withdrawWinnings();
+      await expect(
+        RPSInstance.startRematch(INITIAL_BET_AMOUNT * 2)
+      )
+        .to.emit(RPSInstance, "RematchRequested")
+        .withArgs(deployer.address, INITIAL_BET_AMOUNT * 2);
+    });
+
+    it("Player should not be able to start a rematch if there are winnings.", async () => {
+      const { deployer, players } = await setup(true);
+      await submitMovesAndReveal(deployer, players[0], 0, 2);
+      await expect(
+        deployer.RPSInstance.startRematch(INITIAL_BET_AMOUNT)
+      ).to.be.revertedWith("There are still funds to withdraw.");
+    });
+
+    it("Player should not be able to start a rematch if game hasn't finished.", async () => {
+      const { deployer } = await setup(true);
+      await submitMove(deployer, 0);
+      await expect(
+        deployer.RPSInstance.startRematch(INITIAL_BET_AMOUNT)
+      ).to.be.revertedWith("The game hasn't finished yet.");
+    });
+
+    it("Winning player should be able to start a rematch with winnings.", async () => {
+      const { deployer, players, RPSInstance } = await setup(true);
+      await submitMovesAndReveal(deployer, players[0], 0, 2);
+      await expect(deployer.RPSInstance.startRematchWithWinnings())
+        .to.emit(RPSInstance, "RematchRequested")
+        .withArgs(deployer.address, INITIAL_BET_AMOUNT * 2);
+    });
+
+    it("Losing player should not be able to start a rematch with winnings.", async () => {
+      const { deployer, players } = await setup(true);
+      await submitMovesAndReveal(deployer, players[0], 0, 1);
+      await expect(
+        deployer.RPSInstance.startRematchWithWinnings()
+      ).to.be.revertedWith(
+        "You must be the winner to start a rematch with the winnings."
+      );
+    });
+
+    it("Game can be completed and funds withdrawn after regular rematch.", async () => {
+      const { deployer, players, RPSInstance } = await setup(true);
+      const NEW_BET_AMOUNT = INITIAL_BET_AMOUNT * 2;
+      await submitMovesAndReveal(deployer, players[0], 0, 2);
+      await deployer.RPSInstance.withdrawWinnings();
+      await deployer.RPSInstance.startRematch(NEW_BET_AMOUNT);
+
+      await approveTokenAndDepositBet(deployer, NEW_BET_AMOUNT);
+      await approveTokenAndDepositBet(players[0], NEW_BET_AMOUNT);
+      await submitMovesAndReveal(deployer, players[0], 0, 2);
+      await expect(deployer.RPSInstance.withdrawWinnings())
+        .to.emit(RPSInstance, "WithdrawFunds")
+        .withArgs(
+          deployer.address,
+          NEW_BET_AMOUNT * 2,
+          WithdrawalReason.WinningWithdrawal
+        );
+    });
+
+    it("Game can be completed and funds withdrawn after winnings rematch.", async () => {
+      const { deployer, players, RPSInstance, RPSToken } = await setup(true);
+      await submitMovesAndReveal(deployer, players[0], 0, 2);
+      await deployer.RPSInstance.startRematchWithWinnings();
+      const winningsBet = (await RPSToken.balanceOf(RPSInstance.address)).toNumber();
+
+      await approveTokenAndDepositBet(players[0], winningsBet);
+      await submitMovesAndReveal(deployer, players[0], 0, 1);
+      await expect(players[0].RPSInstance.withdrawWinnings())
+        .to.emit(RPSInstance, "WithdrawFunds")
+        .withArgs(
+          players[0].address,
+          winningsBet * 2,
+          WithdrawalReason.WinningWithdrawal
+        );
+    });
+  });
 });
-
-// describe("RockPaperScissorsInstance Tests", () => {
-
-//   const getHashedMove = async (move: number) => {
-//     const now = new Date().getMilliseconds();
-//     const salt = ethers.utils.id(now.toString());
-//     const hashedMove = ethers.utils.solidityKeccak256(
-//       ["uint8", "bytes32"],
-//       [move, salt]
-//     );
-//     return { hashedMove, salt };
-//   };
-
-//   const submitMove = async (player: SignerWithAddress, move: number) => {
-//     const { hashedMove, salt } = await getHashedMove(move);
-//     await rpsInstance.connect(player).submitMove(hashedMove);
-
-//     return { hashedMove, salt };
-//   };
-//   const revealMove = async (
-//     player: SignerWithAddress,
-//     move: number,
-//     salt: string
-//   ) => {
-//     await rpsInstance.connect(player).revealMove(move, salt);
-//   };
-//   const submitMovesAndReveal = async (
-//     playerA: SignerWithAddress,
-//     playerB: SignerWithAddress,
-//     playerAMove: number,
-//     playerBMove: number
-//   ) => {
-//     const promiseA = submitMove(playerA, playerAMove);
-//     const promiseB = submitMove(playerB, playerBMove);
-//     const [{ salt: playerASalt },{ salt: playerBSalt }] = await Promise.all([promiseA, promiseB]);
-
-//     await revealMove(playerA, playerAMove, playerASalt);
-//     await revealMove(playerB, playerBMove, playerBSalt);
-//   };
-
-//   describe("Withdraw Tests", () => {
-//     beforeEach(async () => {
-//       await approveTokenAndDepositBet(playerA, INITIAL_BET_AMOUNT);
-//       await approveTokenAndDepositBet(playerB, INITIAL_BET_AMOUNT);
-//     });
-
-//     it("Player should not be able to withdraw before game starts if game has started.", async () => {
-//       await expect(rpsInstance.connect(playerA).withdrawBeforeGameStarts()).to.be.revertedWith(
-//         "You can't withdraw once the game has started."
-//       );
-//     });
-
-//     it("Winner should be able to withdraw.", async () => {
-//       await submitMovesAndReveal(playerA, playerB, 0, 2);
-//       await expect(rpsInstance.connect(playerA).withdrawWinnings())
-//         .to.emit(rpsInstance, "WithdrawFunds")
-//         .withArgs(
-//           playerA.address,
-//           INITIAL_BET_AMOUNT * 2,
-//           WithdrawalReason.WinningWithdrawal
-//         );
-//     });
-
-//     it("Loser should not be able to withdraw.", async () => {
-//       await submitMovesAndReveal(playerA, playerB, 2, 1);
-//       await expect(
-//         rpsInstance.connect(playerB).withdrawWinnings()
-//       ).to.be.revertedWith("You are not allowed to withdraw.");
-//     });
-
-//     it("Non-players should not be able to withdraw.", async () => {
-//       await submitMovesAndReveal(playerA, playerB, 1, 2);
-//       await expect(
-//         rpsInstance.connect(contractCreator).withdrawWinnings()
-//       ).to.be.revertedWith("You are not allowed to withdraw.");
-//     });
-
-//     it("Player should be able to incentivize uncooperative opponent.", async () => {
-//       await submitMove(playerA, 0);
-//       await rpsInstance.connect(playerA).incentivizeUser();
-//       expect((await rpsInstance.connect(playerA).incentiveStartTime()).toNumber()
-//       ).to.not.eql(0);
-//     });
-
-//     it("Player should not be able to incentivize if they haven't made a move.", async () => {
-//       await expect(
-//         rpsInstance.connect(playerA).incentivizeUser()
-//       ).to.be.revertedWith("You are not allowed to incentivize your opponent.");
-//     });
-
-//     it("Player should not be able to incentivize cooperative opponent.", async () => {
-//       await submitMove(playerA, 0);
-//       await submitMove(playerB, 1);
-//       await expect(
-//         rpsInstance.connect(playerA).incentivizeUser()
-//       ).to.be.revertedWith("You are not allowed to incentivize your opponent.");
-//     });
-
-//     it("Opponent can become cooperative.", async () => {
-//       await submitMove(playerA, 0);
-//       await rpsInstance.connect(playerA).incentivizeUser();
-//       await submitMove(playerB, 1);
-//       expect((await rpsInstance.connect(playerA).incentiveStartTime()).toNumber()).to.eql(
-//         0
-//       );
-//     });
-
-//     it("Player should be able to withdraw funds once time condition is met.", async () => {
-//       await submitMove(playerA, 0);
-//       await rpsInstance.connect(playerA).incentivizeUser();
-//       await new Promise((r) => setTimeout(r, 2000));
-//       await expect(rpsInstance.connect(playerA).incentivizeUser()).to.emit(
-//         rpsInstance,
-//         "WithdrawFunds"
-//       );
-//     });
-
-//     it("Player should not be able to withdraw funds if time condition isn't met.", async () => {
-//       await submitMove(playerA, 0);
-//       await rpsInstance.connect(playerA).incentivizeUser();
-//       await rpsInstance.connect(playerA).incentivizeUser();
-//       expect(
-//         (await rpsToken.balanceOf(rpsInstance.address)).toNumber()
-//       ).to.be.greaterThan(0);
-//     });
-//   });
-
-//   describe("Rematch Tests", () => {
-//     beforeEach(async () => {
-//       await approveTokenAndDepositBet(playerA, INITIAL_BET_AMOUNT);
-//       await approveTokenAndDepositBet(playerB, INITIAL_BET_AMOUNT);
-//     });
-
-//     it("Winning player should be able to start a rematch with same amount.", async () => {
-//       await submitMovesAndReveal(playerA, playerB, 0, 2);
-//       await rpsInstance.connect(playerA).withdrawWinnings();
-//       await expect(
-//         rpsInstance.connect(playerA).startRematch(INITIAL_BET_AMOUNT)
-//       )
-//         .to.emit(rpsInstance, "RematchRequested")
-//         .withArgs(playerA.address, INITIAL_BET_AMOUNT);
-//     });
-
-//     it("Losing player should be able to start a rematch with a different amount.", async () => {
-//       await submitMovesAndReveal(playerA, playerB, 0, 1);
-//       await rpsInstance.connect(playerB).withdrawWinnings();
-//       await expect(
-//         rpsInstance.connect(playerA).startRematch(INITIAL_BET_AMOUNT * 2)
-//       )
-//         .to.emit(rpsInstance, "RematchRequested")
-//         .withArgs(playerA.address, INITIAL_BET_AMOUNT * 2);
-//     });
-
-//     it("Player should not be able to start a rematch if there are winnings.", async () => {
-//       await submitMovesAndReveal(playerA, playerB, 0, 2);
-//       await expect(
-//         rpsInstance.connect(playerA).startRematch(INITIAL_BET_AMOUNT)
-//       ).to.be.revertedWith("There are still funds to withdraw.");
-//     });
-
-//     it("Player should not be able to start a rematch if game hasn't finished.", async () => {
-//       await submitMove(playerA, 0);
-//       await expect(
-//         rpsInstance.connect(playerA).startRematch(INITIAL_BET_AMOUNT)
-//       ).to.be.revertedWith("The game hasn't finished yet.");
-//     });
-
-//     it("Winning player should be able to start a rematch with winnings.", async () => {
-//       await submitMovesAndReveal(playerA, playerB, 0, 2);
-//       await expect(rpsInstance.connect(playerA).startRematchWithWinnings())
-//         .to.emit(rpsInstance, "RematchRequested")
-//         .withArgs(playerA.address, INITIAL_BET_AMOUNT * 2);
-//     });
-
-//     it("Losing player should not be able to start a rematch with winnings.", async () => {
-//       await submitMovesAndReveal(playerA, playerB, 0, 1);
-//       await expect(
-//         rpsInstance.connect(playerA).startRematchWithWinnings()
-//       ).to.be.revertedWith(
-//         "You must be the winner to start a rematch with the winnings."
-//       );
-//     });
-
-//     it("Game can be completed and funds withdrawn after regular rematch.", async () => {
-//       const NEW_BET_AMOUNT = INITIAL_BET_AMOUNT * 2;
-//       await submitMovesAndReveal(playerA, playerB, 0, 2);
-//       await rpsInstance.connect(playerA).withdrawWinnings();
-//       await rpsInstance.connect(playerA).startRematch(NEW_BET_AMOUNT);
-
-//       await approveTokenAndDepositBet(playerA, NEW_BET_AMOUNT);
-//       await approveTokenAndDepositBet(playerB, NEW_BET_AMOUNT);
-//       await submitMovesAndReveal(playerA, playerB, 0, 2);
-//       await expect(rpsInstance.connect(playerA).withdrawWinnings())
-//         .to.emit(rpsInstance, "WithdrawFunds")
-//         .withArgs(
-//           playerA.address,
-//           NEW_BET_AMOUNT * 2,
-//           WithdrawalReason.WinningWithdrawal
-//         );
-//     });
-
-//     it("Game can be completed and funds withdrawn after winnings rematch.", async () => {
-//       await submitMovesAndReveal(playerA, playerB, 0, 2);
-//       await rpsInstance.connect(playerA).startRematchWithWinnings();
-//       const winningsBet = (await rpsToken.balanceOf(rpsInstance.address)).toNumber();
-
-//       await approveTokenAndDepositBet(playerB, winningsBet);
-//       await submitMovesAndReveal(playerA, playerB, 0, 1);
-//       await expect(rpsInstance.connect(playerB).withdrawWinnings())
-//         .to.emit(rpsInstance, "WithdrawFunds")
-//         .withArgs(
-//           playerB.address,
-//           winningsBet * 2,
-//           WithdrawalReason.WinningWithdrawal
-//         );
-//     });
-//   });
-// });
