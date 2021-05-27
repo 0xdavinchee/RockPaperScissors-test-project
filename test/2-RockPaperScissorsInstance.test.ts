@@ -17,7 +17,10 @@ enum WithdrawalReason {
 }
 
 const setup = deployments.createFixture(
-  async ({ deployments, getNamedAccounts, getUnnamedAccounts, ethers }) => {
+  async (
+    { deployments, getNamedAccounts, getUnnamedAccounts, ethers },
+    shouldEnroll?: boolean
+  ) => {
     await deployments.fixture([
       contract.RockPaperScissorsCloneFactory,
       contract.RPSToken,
@@ -42,16 +45,25 @@ const setup = deployments.createFixture(
       contract.RockPaperScissorsInstance,
       rpsInstanceAddress
     )) as RockPaperScissorsInstance;
+
     const contracts = {
       RPSCloneFactory,
       RPSInstance,
       RPSToken,
     };
 
+    const formattedDeployer = await setupUser(deployer, contracts);
+    const formattedPlayers = await setupUsers(players, contracts);
+
+    if (shouldEnroll) {
+      await approveTokenAndDepositBet(formattedDeployer, INITIAL_BET_AMOUNT);
+      await approveTokenAndDepositBet(formattedPlayers[0], INITIAL_BET_AMOUNT);
+    }
+
     return {
       ...contracts,
-      deployer: await setupUser(deployer, contracts),
-      players: await setupUsers(players, contracts),
+      deployer: formattedDeployer,
+      players: formattedPlayers,
     };
   }
 );
@@ -92,13 +104,37 @@ const submitMove = async <
   return { hashedMove, salt };
 };
 
-// const revealMove = async (
-//   player: SignerWithAddress,
-//   move: number,
-//   salt: string
-// ) => {
-//   await rpsInstance.connect(player).revealMove(move, salt);
-// };
+const revealMove = async <
+  T extends {
+    [contractName: string]: Contract | RockPaperScissorsInstance | RpsToken;
+  }
+>(
+  player: { address: string } & T,
+  move: number,
+  salt: string
+) => {
+  await player.RPSInstance.revealMove(move, salt);
+};
+const submitMovesAndReveal = async <
+  T extends {
+    [contractName: string]: Contract | RockPaperScissorsInstance | RpsToken;
+  }
+>(
+  playerA: { address: string } & T,
+  playerB: { address: string } & T,
+  playerAMove: number,
+  playerBMove: number
+) => {
+  const promiseA = submitMove(playerA, playerAMove);
+  const promiseB = submitMove(playerB, playerBMove);
+  const [{ salt: playerASalt }, { salt: playerBSalt }] = await Promise.all([
+    promiseA,
+    promiseB,
+  ]);
+
+  await revealMove(playerA, playerAMove, playerASalt);
+  await revealMove(playerB, playerBMove, playerBSalt);
+};
 
 describe("RockPaperScissorsInstance Tests", () => {
   describe("Deposit Tests", () => {
@@ -164,9 +200,7 @@ describe("RockPaperScissorsInstance Tests", () => {
 
   describe("Submit/Reveal Move Tests", () => {
     it("Should allow the user to submit a move.", async () => {
-      const { deployer, players, RPSInstance } = await setup();
-      await approveTokenAndDepositBet(deployer, INITIAL_BET_AMOUNT);
-      await approveTokenAndDepositBet(players[0], INITIAL_BET_AMOUNT);
+      const { deployer, RPSInstance } = await setup(true);
       const { hashedMove } = await getHashedMove(0);
 
       await expect(RPSInstance.submitMove(hashedMove))
@@ -175,9 +209,8 @@ describe("RockPaperScissorsInstance Tests", () => {
     });
 
     it("Should not allow the user to change their move.", async () => {
-      const { deployer, players } = await setup();
-      await approveTokenAndDepositBet(deployer, INITIAL_BET_AMOUNT);
-      await approveTokenAndDepositBet(players[0], INITIAL_BET_AMOUNT);
+      const { deployer } = await setup(true);
+
       const { hashedMove: playerHashedMove } = await submitMove(deployer, 0);
       await expect(
         deployer.RPSInstance.submitMove(playerHashedMove)
@@ -185,9 +218,7 @@ describe("RockPaperScissorsInstance Tests", () => {
     });
 
     it("Should allow both users to make their move.", async () => {
-      const { deployer, players, RPSInstance } = await setup();
-      await approveTokenAndDepositBet(deployer, INITIAL_BET_AMOUNT);
-      await approveTokenAndDepositBet(players[0], INITIAL_BET_AMOUNT);
+      const { deployer, players, RPSInstance } = await setup(true);
 
       const { hashedMove: playerAHashedMove } = await submitMove(deployer, 0);
       const { hashedMove: playerBHashedMove } = await submitMove(players[0], 1);
@@ -203,9 +234,7 @@ describe("RockPaperScissorsInstance Tests", () => {
     });
 
     it("Should allow the user to reveal their move.", async () => {
-      const { deployer, players, RPSInstance } = await setup();
-      await approveTokenAndDepositBet(deployer, INITIAL_BET_AMOUNT);
-      await approveTokenAndDepositBet(players[0], INITIAL_BET_AMOUNT);
+      const { deployer, players, RPSInstance } = await setup(true);
 
       const hashedMove = ethers.utils.solidityKeccak256(["uint"], [0]);
       const { salt } = await submitMove(deployer, 0);
@@ -216,9 +245,7 @@ describe("RockPaperScissorsInstance Tests", () => {
     });
 
     it("Should allow both users to reveal their moves.", async () => {
-      const { deployer, players, RPSInstance } = await setup();
-      await approveTokenAndDepositBet(deployer, INITIAL_BET_AMOUNT);
-      await approveTokenAndDepositBet(players[0], INITIAL_BET_AMOUNT);
+      const { deployer, players, RPSInstance } = await setup(true);
 
       const hashedMove = ethers.utils.solidityKeccak256(["uint"], [0]);
       const { salt: playerASalt } = await submitMove(deployer, 0);
@@ -230,9 +257,7 @@ describe("RockPaperScissorsInstance Tests", () => {
     });
 
     it("Should not allow user to use wrong move when revealing.", async () => {
-      const { deployer, players } = await setup();
-      await approveTokenAndDepositBet(deployer, INITIAL_BET_AMOUNT);
-      await approveTokenAndDepositBet(players[0], INITIAL_BET_AMOUNT);
+      const { deployer, players } = await setup(true);
 
       await submitMove(deployer, 0);
       const { salt: playerBSalt } = await submitMove(players[0], 0);
@@ -244,9 +269,7 @@ describe("RockPaperScissorsInstance Tests", () => {
     });
 
     it("Should not allow user to use wrong salt when revealing.", async () => {
-      const { deployer, players } = await setup();
-      await approveTokenAndDepositBet(deployer, INITIAL_BET_AMOUNT);
-      await approveTokenAndDepositBet(players[0], INITIAL_BET_AMOUNT);
+      const { deployer, players } = await setup(true);
 
       const { salt: playerASalt } = await submitMove(deployer, 0);
       await submitMove(players[0], 0);
@@ -258,9 +281,7 @@ describe("RockPaperScissorsInstance Tests", () => {
     });
 
     it("Should reset everyone's moves if one or more players submitted an incorrect move.", async () => {
-      const { deployer, players } = await setup();
-      await approveTokenAndDepositBet(deployer, INITIAL_BET_AMOUNT);
-      await approveTokenAndDepositBet(players[0], INITIAL_BET_AMOUNT);
+      const { deployer, players } = await setup(true);
 
       const { salt } = await submitMove(deployer, 3);
       await submitMove(players[0], 0);
@@ -270,14 +291,64 @@ describe("RockPaperScissorsInstance Tests", () => {
     });
 
     it("Should not allow non-player to submit a move.", async () => {
-      const { deployer, players } = await setup();
-      await approveTokenAndDepositBet(deployer, INITIAL_BET_AMOUNT);
-      await approveTokenAndDepositBet(players[0], INITIAL_BET_AMOUNT);
+      const { players } = await setup(true);
 
       const { hashedMove: playerHashedMove } = await getHashedMove(0);
       await expect(
         players[1].RPSInstance.submitMove(playerHashedMove)
       ).to.be.revertedWith("You are not a part of this game.");
+    });
+  });
+
+  describe("Game Logic/Winner Tests", () => {
+    it("Should be a tie if players use the same move", async () => {
+      const { deployer, players, RPSInstance } = await setup(true);
+      await submitMovesAndReveal(deployer, players[0], 0, 0);
+      const winner = await RPSInstance.winner();
+      const playerADataMap = await RPSInstance.playerDataMap(deployer.address);
+      const playerBDataMap = await RPSInstance.playerDataMap(
+        players[0].address
+      );
+      expect([winner, playerADataMap["move"], playerBDataMap["move"]]).to.eql([
+        ethers.constants.AddressZero,
+        ethers.constants.HashZero,
+        ethers.constants.HashZero,
+      ]);
+    });
+
+    it("Player A should win with a winning hand", async () => {
+      const { deployer, players, RPSInstance } = await setup(true);
+      await submitMovesAndReveal(deployer, players[0], 0, 2);
+      const winner = await RPSInstance.winner();
+      expect(winner).to.eql(deployer.address);
+    });
+
+    it("Player B should win with a winning hand", async () => {
+      const { deployer, players, RPSInstance } = await setup(true);
+      await submitMovesAndReveal(deployer, players[0], 0, 1);
+      const winner = await RPSInstance.winner();
+      expect(winner).to.eql(players[0].address);
+    });
+  });
+
+  describe("Withdraw Edge Cases", () => {
+    it("Player should be able to withdraw before game starts.", async () => {
+      const { deployer, RPSInstance } = await setup();
+      await approveTokenAndDepositBet(deployer, INITIAL_BET_AMOUNT);
+      await expect(deployer.RPSInstance.withdrawBeforeGameStarts())
+        .to.emit(RPSInstance, "WithdrawFunds")
+        .withArgs(
+          deployer.address,
+          INITIAL_BET_AMOUNT,
+          WithdrawalReason.EarlyWithdrawal
+        );
+    });
+
+    it("Player should not be able to withdraw before game starts if they haven't deposited.", async () => {
+      const { deployer } = await setup();
+      await expect(
+        deployer.RPSInstance.withdrawBeforeGameStarts()
+      ).to.be.revertedWith("You haven't deposited yet.");
     });
   });
 });
@@ -320,56 +391,6 @@ describe("RockPaperScissorsInstance Tests", () => {
 //     await revealMove(playerA, playerAMove, playerASalt);
 //     await revealMove(playerB, playerBMove, playerBSalt);
 //   };
-
-//   describe("Game Logic/Winner Tests", () => {
-//     beforeEach(async () => {
-//       await approveTokenAndDepositBet(playerA, INITIAL_BET_AMOUNT);
-//       await approveTokenAndDepositBet(playerB, INITIAL_BET_AMOUNT);
-//     });
-
-//     it("Should be a tie if players use the same move", async () => {
-//       await submitMovesAndReveal(playerA, playerB, 0, 0);
-//       const winner = await rpsInstance.winner();
-//       const playerADataMap = await rpsInstance.playerDataMap(playerA.address);
-//       const playerBDataMap = await rpsInstance.playerDataMap(playerA.address);
-//       expect([winner, playerADataMap["move"], playerBDataMap["move"]]).to.eql([
-//         ethers.constants.AddressZero,
-//         ethers.constants.HashZero,
-//         ethers.constants.HashZero,
-//       ]);
-//     });
-
-//     it("Player A should win with a winning hand", async () => {
-//       await submitMovesAndReveal(playerA, playerB, 0, 2);
-//       const winner = await rpsInstance.winner();
-//       expect(winner).to.eql(playerA.address);
-//     });
-
-//     it("Player B should win with a winning hand", async () => {
-//       await submitMovesAndReveal(playerA, playerB, 0, 1);
-//       const winner = await rpsInstance.winner();
-//       expect(winner).to.eql(playerB.address);
-//     });
-//   });
-
-//   describe("Withdraw Edge Cases", () => {
-//     it("Player should be able to withdraw before game starts.", async () => {
-//       await approveTokenAndDepositBet(playerA, INITIAL_BET_AMOUNT);
-//       await expect(rpsInstance.connect(playerA).withdrawBeforeGameStarts())
-//         .to.emit(rpsInstance, "WithdrawFunds")
-//         .withArgs(
-//           playerA.address,
-//           INITIAL_BET_AMOUNT,
-//           WithdrawalReason.EarlyWithdrawal
-//         );
-//     });
-
-//     it("Player should not be able to withdraw before game starts if they haven't deposited.", async () => {
-//       await expect(rpsInstance.connect(playerA).withdrawBeforeGameStarts()).to.be.revertedWith(
-//         "You haven't deposited yet."
-//       );
-//     });
-//   });
 
 //   describe("Withdraw Tests", () => {
 //     beforeEach(async () => {
