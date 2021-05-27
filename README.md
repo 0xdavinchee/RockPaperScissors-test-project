@@ -22,3 +22,7 @@ Now fork this repo and do it!
 When you're done, please send an email to zak@slingshot.finance (if you're not applying through Homerun) with a link to your fork or join the [Slingshot Discord channel](https://discord.gg/JNUnqYjwmV) and let us know.  
   
 Happy hacking!
+
+---
+
+**Notes**
