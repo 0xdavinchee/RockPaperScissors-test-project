@@ -1,5 +1,5 @@
 import { expect } from "./chai-setup";
-import { deployments } from "hardhat";
+import { deployments, ethers } from "hardhat";
 
 import {
   RockPaperScissorsCloneFactory,
@@ -56,7 +56,7 @@ const setup = deployments.createFixture(
   }
 );
 
-const submitTokenAndDepositBet = async <
+const approveTokenAndDepositBet = async <
   T extends {
     [contractName: string]: Contract | RockPaperScissorsInstance | RpsToken;
   }
@@ -67,6 +67,39 @@ const submitTokenAndDepositBet = async <
   await player.RPSToken.approve(player.RPSInstance.address, amount);
   return player.RPSInstance.depositBet(amount);
 };
+
+const getHashedMove = async (move: number) => {
+  const now = new Date().getMilliseconds();
+  const salt = ethers.utils.id(now.toString());
+  const hashedMove = ethers.utils.solidityKeccak256(
+    ["uint8", "bytes32"],
+    [move, salt]
+  );
+  return { hashedMove, salt };
+};
+
+const submitMove = async <
+  T extends {
+    [contractName: string]: Contract | RockPaperScissorsInstance | RpsToken;
+  }
+>(
+  player: { address: string } & T,
+  move: number
+) => {
+  const { hashedMove, salt } = await getHashedMove(move);
+  await player.RPSInstance.submitMove(hashedMove);
+
+  return { hashedMove, salt };
+};
+
+// const revealMove = async (
+//   player: SignerWithAddress,
+//   move: number,
+//   salt: string
+// ) => {
+//   await rpsInstance.connect(player).revealMove(move, salt);
+// };
+
 describe("RockPaperScissorsInstance Tests", () => {
   describe("Deposit Tests", () => {
     it("Should allow player A to deposit funds.", async () => {
@@ -75,17 +108,17 @@ describe("RockPaperScissorsInstance Tests", () => {
         RPSInstance.address,
         INITIAL_BET_AMOUNT
       );
-      await expect(submitTokenAndDepositBet(players[0], INITIAL_BET_AMOUNT))
+      await expect(approveTokenAndDepositBet(players[0], INITIAL_BET_AMOUNT))
         .to.emit(RPSInstance, "DepositCompleted")
         .withArgs(players[0].address, INITIAL_BET_AMOUNT);
     });
 
     it("Should not allow player to deposit funds twice.", async () => {
       const { players } = await setup();
-      submitTokenAndDepositBet(players[0], INITIAL_BET_AMOUNT);
+      approveTokenAndDepositBet(players[0], INITIAL_BET_AMOUNT);
 
       await expect(
-        submitTokenAndDepositBet(players[0], INITIAL_BET_AMOUNT)
+        approveTokenAndDepositBet(players[0], INITIAL_BET_AMOUNT)
       ).to.be.revertedWith("You have already deposited.");
     });
 
@@ -99,121 +132,155 @@ describe("RockPaperScissorsInstance Tests", () => {
     it("Should not allow player to deposit incorrect token amount.", async () => {
       const { players } = await setup();
       await expect(
-        submitTokenAndDepositBet(players[0], INITIAL_BET_AMOUNT * 2)
+        approveTokenAndDepositBet(players[0], INITIAL_BET_AMOUNT * 2)
       ).to.be.revertedWith("You've submitted the incorrect bet amount.");
     });
 
     it("Should not allow a player to deposit when game is full.", async () => {
       const { players } = await setup();
-      await submitTokenAndDepositBet(players[0], INITIAL_BET_AMOUNT);
+      await approveTokenAndDepositBet(players[0], INITIAL_BET_AMOUNT);
 
       await expect(
-        submitTokenAndDepositBet(players[1], INITIAL_BET_AMOUNT)
+        approveTokenAndDepositBet(players[1], INITIAL_BET_AMOUNT)
       ).to.be.revertedWith("You are not allowed to deposit.");
     });
 
     it("Should emit DepositCompleted on successful deposit.", async () => {
       const { players, RPSInstance } = await setup();
-      await expect(submitTokenAndDepositBet(players[0], INITIAL_BET_AMOUNT))
+      await expect(approveTokenAndDepositBet(players[0], INITIAL_BET_AMOUNT))
         .to.emit(RPSInstance, "DepositCompleted")
         .withArgs(players[0].address, INITIAL_BET_AMOUNT);
     });
 
     it("Should start the game once both players have deposited.", async () => {
       const { deployer, players, RPSInstance, RPSToken } = await setup();
-      await submitTokenAndDepositBet(deployer, INITIAL_BET_AMOUNT);
+      await approveTokenAndDepositBet(deployer, INITIAL_BET_AMOUNT);
 
-      await expect(submitTokenAndDepositBet(players[0], INITIAL_BET_AMOUNT))
+      await expect(approveTokenAndDepositBet(players[0], INITIAL_BET_AMOUNT))
         .to.emit(RPSInstance, "GameStarted")
         .withArgs(deployer.address, players[0].address, INITIAL_BET_AMOUNT);
     });
   });
+
+  describe("Submit/Reveal Move Tests", () => {
+    it("Should allow the user to submit a move.", async () => {
+      const { deployer, players, RPSInstance } = await setup();
+      await approveTokenAndDepositBet(deployer, INITIAL_BET_AMOUNT);
+      await approveTokenAndDepositBet(players[0], INITIAL_BET_AMOUNT);
+      const { hashedMove } = await getHashedMove(0);
+
+      await expect(RPSInstance.submitMove(hashedMove))
+        .to.emit(RPSInstance, "MoveSubmitted")
+        .withArgs(deployer.address, hashedMove);
+    });
+
+    it("Should not allow the user to change their move.", async () => {
+      const { deployer, players } = await setup();
+      await approveTokenAndDepositBet(deployer, INITIAL_BET_AMOUNT);
+      await approveTokenAndDepositBet(players[0], INITIAL_BET_AMOUNT);
+      const { hashedMove: playerHashedMove } = await submitMove(deployer, 0);
+      await expect(
+        deployer.RPSInstance.submitMove(playerHashedMove)
+      ).to.be.revertedWith("You cannot change your move.");
+    });
+
+    it("Should allow both users to make their move.", async () => {
+      const { deployer, players, RPSInstance } = await setup();
+      await approveTokenAndDepositBet(deployer, INITIAL_BET_AMOUNT);
+      await approveTokenAndDepositBet(players[0], INITIAL_BET_AMOUNT);
+
+      const { hashedMove: playerAHashedMove } = await submitMove(deployer, 0);
+      const { hashedMove: playerBHashedMove } = await submitMove(players[0], 1);
+
+      const playerADataMap = await RPSInstance.playerDataMap(deployer.address);
+      const playerBDataMap = await RPSInstance.playerDataMap(
+        players[0].address
+      );
+      expect([playerAHashedMove, playerBHashedMove]).to.eql([
+        playerADataMap["move"],
+        playerBDataMap["move"],
+      ]);
+    });
+
+    it("Should allow the user to reveal their move.", async () => {
+      const { deployer, players, RPSInstance } = await setup();
+      await approveTokenAndDepositBet(deployer, INITIAL_BET_AMOUNT);
+      await approveTokenAndDepositBet(players[0], INITIAL_BET_AMOUNT);
+
+      const hashedMove = ethers.utils.solidityKeccak256(["uint"], [0]);
+      const { salt } = await submitMove(deployer, 0);
+      await submitMove(players[0], 0);
+      await expect(RPSInstance.revealMove(0, salt))
+        .to.emit(RPSInstance, "MoveRevealed")
+        .withArgs(deployer.address, hashedMove);
+    });
+
+    it("Should allow both users to reveal their moves.", async () => {
+      const { deployer, players, RPSInstance } = await setup();
+      await approveTokenAndDepositBet(deployer, INITIAL_BET_AMOUNT);
+      await approveTokenAndDepositBet(players[0], INITIAL_BET_AMOUNT);
+
+      const hashedMove = ethers.utils.solidityKeccak256(["uint"], [0]);
+      const { salt: playerASalt } = await submitMove(deployer, 0);
+      const { salt: playerBSalt } = await submitMove(players[0], 0);
+      await RPSInstance.revealMove(0, playerASalt);
+      await expect(players[0].RPSInstance.revealMove(0, playerBSalt))
+        .to.emit(RPSInstance, "MoveRevealed")
+        .withArgs(players[0].address, hashedMove);
+    });
+
+    it("Should not allow user to use wrong move when revealing.", async () => {
+      const { deployer, players } = await setup();
+      await approveTokenAndDepositBet(deployer, INITIAL_BET_AMOUNT);
+      await approveTokenAndDepositBet(players[0], INITIAL_BET_AMOUNT);
+
+      await submitMove(deployer, 0);
+      const { salt: playerBSalt } = await submitMove(players[0], 0);
+      await expect(
+        players[0].RPSInstance.revealMove(1, playerBSalt)
+      ).to.be.revertedWith(
+        "It appears the move you entered isn't the same as before."
+      );
+    });
+
+    it("Should not allow user to use wrong salt when revealing.", async () => {
+      const { deployer, players } = await setup();
+      await approveTokenAndDepositBet(deployer, INITIAL_BET_AMOUNT);
+      await approveTokenAndDepositBet(players[0], INITIAL_BET_AMOUNT);
+
+      const { salt: playerASalt } = await submitMove(deployer, 0);
+      await submitMove(players[0], 0);
+      await expect(
+        players[0].RPSInstance.revealMove(0, playerASalt)
+      ).to.be.revertedWith(
+        "It appears the move you entered isn't the same as before."
+      );
+    });
+
+    it("Should reset everyone's moves if one or more players submitted an incorrect move.", async () => {
+      const { deployer, players } = await setup();
+      await approveTokenAndDepositBet(deployer, INITIAL_BET_AMOUNT);
+      await approveTokenAndDepositBet(players[0], INITIAL_BET_AMOUNT);
+
+      const { salt } = await submitMove(deployer, 3);
+      await submitMove(players[0], 0);
+      await expect(deployer.RPSInstance.revealMove(3, salt)).to.be.revertedWith(
+        "You must pick rock, paper or scissors."
+      );
+    });
+
+    it("Should not allow non-player to submit a move.", async () => {
+      const { deployer, players } = await setup();
+      await approveTokenAndDepositBet(deployer, INITIAL_BET_AMOUNT);
+      await approveTokenAndDepositBet(players[0], INITIAL_BET_AMOUNT);
+
+      const { hashedMove: playerHashedMove } = await getHashedMove(0);
+      await expect(
+        players[1].RPSInstance.submitMove(playerHashedMove)
+      ).to.be.revertedWith("You are not a part of this game.");
+    });
+  });
 });
-//   describe("Submit/Reveal Move Tests", () => {
-//     beforeEach(async () => {
-//       await approveTokenAndDepositBet(playerA, INITIAL_BET_AMOUNT);
-//       await approveTokenAndDepositBet(playerB, INITIAL_BET_AMOUNT);
-//     });
-
-//     it("Should allow the user to submit a move.", async () => {
-//       const { hashedMove } = await getHashedMove(0);
-//       await expect(rpsInstance.connect(playerA).submitMove(hashedMove))
-//         .to.emit(rpsInstance, "MoveSubmitted")
-//         .withArgs(playerA.address, hashedMove);
-//     });
-
-//     it("Should not allow the user to change their move.", async () => {
-//       const { hashedMove: playerHashedMove } = await submitMove(playerA, 0);
-//       await expect(
-//         rpsInstance.connect(playerA).submitMove(playerHashedMove)
-//       ).to.be.revertedWith("You cannot change your move.");
-//     });
-
-//     it("Should allow both users to make their move.", async () => {
-//       const { hashedMove: playerAHashedMove } = await submitMove(playerA, 0);
-//       const { hashedMove: playerBHashedMove } = await submitMove(playerB, 1);
-//       const playerADataMap = await rpsInstance.playerDataMap(playerA.address);
-//       const playerBDataMap = await rpsInstance.playerDataMap(playerB.address);
-//       expect([playerAHashedMove, playerBHashedMove]).to.eql([
-//         playerADataMap["move"],
-//         playerBDataMap["move"],
-//       ]);
-//     });
-
-//     it("Should allow the user to reveal their move.", async () => {
-//       const hashedMove = ethers.utils.solidityKeccak256(["uint"], [0]);
-//       const { salt } = await submitMove(playerA, 0);
-//       await submitMove(playerB, 0);
-//       await expect(rpsInstance.connect(playerA).revealMove(0, salt))
-//         .to.emit(rpsInstance, "MoveRevealed")
-//         .withArgs(playerA.address, hashedMove);
-//     });
-
-//     it("Should allow both users to reveal their moves.", async () => {
-//       const hashedMove = ethers.utils.solidityKeccak256(["uint"], [0]);
-//       const { salt: playerASalt } = await submitMove(playerA, 0);
-//       const { salt: playerBSalt } = await submitMove(playerB, 0);
-//       await rpsInstance.connect(playerA).revealMove(0, playerASalt);
-//       await expect(rpsInstance.connect(playerB).revealMove(0, playerBSalt))
-//         .to.emit(rpsInstance, "MoveRevealed")
-//         .withArgs(playerB.address, hashedMove);
-//     });
-
-//     it("Should not allow user to use wrong move when revealing.", async () => {
-//       await submitMove(playerA, 0);
-//       const { salt: playerBSalt } = await submitMove(playerB, 0);
-//       await expect(
-//         rpsInstance.connect(playerB).revealMove(1, playerBSalt)
-//       ).to.be.revertedWith(
-//         "It appears the move you entered isn't the same as before."
-//       );
-//     });
-
-//     it("Should not allow user to use wrong salt when revealing.", async () => {
-//       const { salt: playerASalt } = await submitMove(playerA, 0);
-//       await submitMove(playerB, 0);
-//       await expect(
-//         rpsInstance.connect(playerB).revealMove(0, playerASalt)
-//       ).to.be.revertedWith(
-//         "It appears the move you entered isn't the same as before."
-//       );
-//     });
-
-//     it("Should reset everyone's moves if one or more players submitted an incorrect move.", async () => {
-//       const { salt } = await submitMove(playerA, 3);
-//       await submitMove(playerB, 0);
-//       await expect(
-//         rpsInstance.connect(playerA).revealMove(3, salt)
-//       ).to.be.revertedWith("You must pick rock, paper or scissors.");
-//     });
-
-//     it("Should not allow non-player to submit a move.", async () => {
-//       const { hashedMove: playerHashedMove } = await getHashedMove(0);
-//       await expect(
-//         rpsInstance.connect(contractCreator).submitMove(playerHashedMove)
-//       ).to.be.revertedWith("You are not a part of this game.");
-//     });
-//   });
 
 // describe("RockPaperScissorsInstance Tests", () => {
 
