@@ -1,6 +1,6 @@
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
 import { ethers } from "hardhat";
-import { expect } from "chai";
+import { expect } from "./chai-setup";
 
 import {
   RockPaperScissorsCloneFactory,
