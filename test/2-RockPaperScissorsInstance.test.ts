@@ -1,12 +1,11 @@
 import { expect } from "./chai-setup";
-import {
-  ethers,
-  deployments,
-  getNamedAccounts,
-  getUnnamedAccounts,
-} from "hardhat";
+import { deployments } from "hardhat";
 
-import { RockPaperScissorsCloneFactory, RockPaperScissorsInstance, RpsToken } from "../typechain";
+import {
+  RockPaperScissorsCloneFactory,
+  RockPaperScissorsInstance,
+  RpsToken,
+} from "../typechain";
 import { setupUser, setupUsers } from "./utils";
 import { contract, INITIAL_BET_AMOUNT } from "../utils/constants";
 
@@ -16,41 +15,45 @@ enum WithdrawalReason {
   IncentivizedWithdrawal,
 }
 
-const setup = async () => {
-  await deployments.fixture([
-    contract.RockPaperScissorsCloneFactory,
-    contract.RPSToken,
-    contract.RockPaperScissorsInstance
-  ]);
-  const RPSCloneFactory = (await ethers.getContract(
-    contract.RockPaperScissorsCloneFactory
-  )) as RockPaperScissorsCloneFactory;
-  const RPSToken = (await ethers.getContract(contract.RPSToken)) as RpsToken;
+const setup = deployments.createFixture(
+  async ({ deployments, getNamedAccounts, getUnnamedAccounts, ethers }) => {
+    await deployments.fixture([
+      contract.RockPaperScissorsCloneFactory,
+      contract.RPSToken,
+    ]);
+    const RPSCloneFactory = (await ethers.getContract(
+      contract.RockPaperScissorsCloneFactory
+    )) as RockPaperScissorsCloneFactory;
+    const RPSToken = (await ethers.getContract(contract.RPSToken)) as RpsToken;
 
-  const { deployer } = await getNamedAccounts();
-  const players = await getUnnamedAccounts();
-  await RPSToken.transfer(players[0], 1000);
-  await RPSToken.transfer(players[1], 1000);
-  const rpsInstanceTxn = RPSCloneFactory.createRockPaperScissorsInstance(
-    deployer,
-    RPSToken.address,
-    INITIAL_BET_AMOUNT
-  );
-  const rpsInstanceReceipt = await (await rpsInstanceTxn).wait();
-  const rpsInstanceAddress = rpsInstanceReceipt.logs[0].address;
-  const RPSInstance = await ethers.getContractAt(contract.RockPaperScissorsInstance, rpsInstanceAddress) as RockPaperScissorsInstance;
-  const contracts = {
-    RPSCloneFactory,
-    RPSInstance,
-    RPSToken,
-  };
+    const { deployer } = await getNamedAccounts();
+    const players = await getUnnamedAccounts();
+    await RPSToken.transfer(players[0], 1000);
+    await RPSToken.transfer(players[1], 1000);
+    const rpsInstanceTxn = RPSCloneFactory.createRockPaperScissorsInstance(
+      deployer,
+      RPSToken.address,
+      INITIAL_BET_AMOUNT
+    );
+    const rpsInstanceReceipt = await (await rpsInstanceTxn).wait();
+    const rpsInstanceAddress = rpsInstanceReceipt.logs[0].address;
+    const RPSInstance = (await ethers.getContractAt(
+      contract.RockPaperScissorsInstance,
+      rpsInstanceAddress
+    )) as RockPaperScissorsInstance;
+    const contracts = {
+      RPSCloneFactory,
+      RPSInstance,
+      RPSToken,
+    };
 
-  return {
-    ...contracts,
-    deployer: await setupUser(deployer, contracts),
-    players: await setupUsers(players, contracts),
-  };
-};
+    return {
+      ...contracts,
+      deployer: await setupUser(deployer, contracts),
+      players: await setupUsers(players, contracts),
+    };
+  }
+);
 
 //   const approveTokenAndDepositBet = async (
 //     player: SignerWithAddress,
@@ -63,7 +66,10 @@ describe("RockPaperScissorsInstance Tests", () => {
   describe("Deposit Tests", () => {
     it("Should allow player A to deposit funds.", async () => {
       const { players, RPSInstance } = await setup();
-      await players[0].RPSToken.approve(RPSInstance.address, INITIAL_BET_AMOUNT);
+      await players[0].RPSToken.approve(
+        RPSInstance.address,
+        INITIAL_BET_AMOUNT
+      );
       await expect(players[0].RPSInstance.depositBet(INITIAL_BET_AMOUNT))
         .to.emit(RPSInstance, "DepositCompleted")
         .withArgs(players[0].address, INITIAL_BET_AMOUNT);
@@ -71,10 +77,16 @@ describe("RockPaperScissorsInstance Tests", () => {
 
     it("Should not allow player to deposit funds twice.", async () => {
       const { players, RPSInstance } = await setup();
-      await players[0].RPSToken.approve(RPSInstance.address, INITIAL_BET_AMOUNT);
+      await players[0].RPSToken.approve(
+        RPSInstance.address,
+        INITIAL_BET_AMOUNT
+      );
       await players[0].RPSInstance.depositBet(INITIAL_BET_AMOUNT);
 
-      await players[0].RPSToken.approve(RPSInstance.address, INITIAL_BET_AMOUNT);
+      await players[0].RPSToken.approve(
+        RPSInstance.address,
+        INITIAL_BET_AMOUNT
+      );
       await expect(
         players[0].RPSInstance.depositBet(INITIAL_BET_AMOUNT)
       ).to.be.revertedWith("You have already deposited.");
@@ -89,46 +101,57 @@ describe("RockPaperScissorsInstance Tests", () => {
 
     it("Should not allow player to deposit incorrect token amount.", async () => {
       const { players, RPSInstance } = await setup();
-      await players[0].RPSToken.approve(RPSInstance.address, INITIAL_BET_AMOUNT * 2);
+      await players[0].RPSToken.approve(
+        RPSInstance.address,
+        INITIAL_BET_AMOUNT * 2
+      );
       await expect(
         players[0].RPSInstance.depositBet(INITIAL_BET_AMOUNT * 2)
       ).to.be.revertedWith("You've submitted the incorrect bet amount.");
     });
 
-    // it("Should not allow a player to deposit when game is full.", async () => {
-    //   const { players, RPSInstance, RPSToken } = await setup();
-    //   await players[0].RPSToken.approve(RPSInstance.address, INITIAL_BET_AMOUNT);
-    //   await players[0].RPSInstance.depositBet(INITIAL_BET_AMOUNT);
-    //   console.log(await RPSInstance.playerB());
-    //   await players[1].RPSToken.approve(RPSInstance.address, INITIAL_BET_AMOUNT);
-    //   await players[1].RPSInstance.depositBet(INITIAL_BET_AMOUNT);
+    it("Should not allow a player to deposit when game is full.", async () => {
+      const { players, RPSInstance } = await setup();
+      await players[0].RPSToken.approve(
+        RPSInstance.address,
+        INITIAL_BET_AMOUNT
+      );
+      await players[0].RPSInstance.depositBet(INITIAL_BET_AMOUNT);
 
-    //   await RPSToken.approve(RPSInstance.address, INITIAL_BET_AMOUNT);
-    //   await expect(RPSInstance.depositBet(INITIAL_BET_AMOUNT)
-    //   ).to.be.revertedWith("You are not allowed to deposit.");
-    // });
+      await players[1].RPSToken.approve(
+        RPSInstance.address,
+        INITIAL_BET_AMOUNT
+      );
+      await expect(
+        players[1].RPSInstance.depositBet(INITIAL_BET_AMOUNT)
+      ).to.be.revertedWith("You are not allowed to deposit.");
+    });
 
-    // it("Should emit DepositCompleted on successful deposit.", async () => {
-    //   const { players, RPSInstance } = await setup();
-    //   await players[0].RPSToken.approve(RPSInstance.address, INITIAL_BET_AMOUNT);
+    it("Should emit DepositCompleted on successful deposit.", async () => {
+      const { players, RPSInstance } = await setup();
+      await players[0].RPSToken.approve(
+        RPSInstance.address,
+        INITIAL_BET_AMOUNT
+      );
 
-    //   await expect(players[0].RPSInstance.depositBet(INITIAL_BET_AMOUNT))
-    //     .to.emit(RPSInstance, "DepositCompleted")
-    //     .withArgs(players[0].address, INITIAL_BET_AMOUNT);
-    // });
+      await expect(players[0].RPSInstance.depositBet(INITIAL_BET_AMOUNT))
+        .to.emit(RPSInstance, "DepositCompleted")
+        .withArgs(players[0].address, INITIAL_BET_AMOUNT);
+    });
 
-    // it("Should start the game once both players have deposited.", async () => {
-    //   const { players, RPSInstance, RPSToken } = await setup();
-    //   await players[0].RPSToken.approve(RPSInstance.address, INITIAL_BET_AMOUNT);
-    //   await players[0].RPSInstance.depositBet(INITIAL_BET_AMOUNT);
+    it("Should start the game once both players have deposited.", async () => {
+      const { deployer, players, RPSInstance, RPSToken } = await setup();
+      await RPSToken.approve(RPSInstance.address, INITIAL_BET_AMOUNT);
+      await expect(RPSInstance.depositBet(INITIAL_BET_AMOUNT));
 
-    //   await players[1].RPSToken.approve(RPSInstance.address, INITIAL_BET_AMOUNT);
-
-    //   await expect(players[1].RPSInstance.depositBet(INITIAL_BET_AMOUNT))
-    //     .to.emit(RPSInstance, "GameStarted")
-    //     .withArgs(players[0].address, players[1].address, INITIAL_BET_AMOUNT);
-    // });
-
+      await players[0].RPSToken.approve(
+        RPSInstance.address,
+        INITIAL_BET_AMOUNT
+      );
+      await expect(players[0].RPSInstance.depositBet(INITIAL_BET_AMOUNT))
+        .to.emit(RPSInstance, "GameStarted")
+        .withArgs(deployer.address, players[0].address, INITIAL_BET_AMOUNT);
+    });
   });
 });
 
@@ -471,7 +494,7 @@ describe("RockPaperScissorsInstance Tests", () => {
 //           WithdrawalReason.WinningWithdrawal
 //         );
 //     });
-  
+
 //     it("Game can be completed and funds withdrawn after winnings rematch.", async () => {
 //       await submitMovesAndReveal(playerA, playerB, 0, 2);
 //       await rpsInstance.connect(playerA).startRematchWithWinnings();
@@ -489,4 +512,3 @@ describe("RockPaperScissorsInstance Tests", () => {
 //     });
 //   });
 // });
-

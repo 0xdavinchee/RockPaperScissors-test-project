@@ -9,7 +9,7 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   const { deployer } = await getNamedAccounts();
 
   await deploy(contract.RockPaperScissorsInstance, {
-    from: deployer,
+    from: deployer
   });
 };
 
