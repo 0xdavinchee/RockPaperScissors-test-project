@@ -42,7 +42,7 @@ describe("RPS Factory Contract Tests", async () => {
   });
 
   describe("Initialize new proxies.", async () => {
-    it("Should emit the correct variables.", async () => {
+    it("Should emit the correct variables for GameCreated.", async () => {
       const { players, RPSCloneFactory, RPSToken } = await setup();
       const contractTxn = RPSCloneFactory.createRockPaperScissorsInstance(
         players[0].address,
@@ -57,6 +57,26 @@ describe("RPS Factory Contract Tests", async () => {
         .withArgs(
           players[0].address,
           contractAddress,
+          RPSToken.address,
+          INITIAL_BET_AMOUNT
+        );
+    });
+
+    it("Should emit the correct variables for GameInitialized.", async () => {
+      const { players, RPSCloneFactory, RPSToken } = await setup();
+      const contractTxn = RPSCloneFactory.createRockPaperScissorsInstance(
+        players[0].address,
+        RPSToken.address,
+        INITIAL_BET_AMOUNT
+      );
+      const contractReceipt = await (await contractTxn).wait();
+      const contractAddress = contractReceipt.logs[0].address;
+      const rpsInstance = await ethers.getContractAt(contract.RockPaperScissorsInstance, contractAddress);
+
+      await expect(contractTxn)
+        .to.emit(rpsInstance, "GameInitialized")
+        .withArgs(
+          players[0].address,
           RPSToken.address,
           INITIAL_BET_AMOUNT
         );
