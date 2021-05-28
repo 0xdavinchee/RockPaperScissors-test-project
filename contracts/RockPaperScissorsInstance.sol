@@ -302,11 +302,9 @@ contract RockPaperScissorsInstance is Initializable {
             incentiveStartTime = block.timestamp;
         }
 
-        // this is set to 1 seconds for testing purposes, it would make sense
-        // to give your opponent much more time to respond.
         if (
             incentiveStartTime != 0 &&
-            ((block.timestamp - incentiveStartTime) > 1 seconds)
+            ((block.timestamp - incentiveStartTime) > 1 hours)
         ) {
             isActive = false;
             winner = msg.sender;

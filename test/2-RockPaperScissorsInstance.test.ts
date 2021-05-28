@@ -8,7 +8,7 @@ import {
 } from "../typechain";
 import { setupUser, setupUsers } from "./utils";
 import { contract, INITIAL_BET_AMOUNT } from "../utils/constants";
-import { Contract } from "@ethersproject/contracts";
+import { Contract, ContractTransaction } from "@ethersproject/contracts";
 
 enum WithdrawalReason {
   EarlyWithdrawal,
@@ -45,7 +45,6 @@ const setup = deployments.createFixture(
       contract.RockPaperScissorsInstance,
       rpsInstanceAddress
     )) as RockPaperScissorsInstance;
-
     const contracts = {
       RPSCloneFactory,
       RPSInstance,
@@ -99,7 +98,8 @@ const submitMove = async <
   move: number
 ) => {
   const { hashedMove, salt } = await getHashedMove(move);
-  await player.RPSInstance.submitMove(hashedMove);
+  const txn: ContractTransaction = await player.RPSInstance.submitMove(hashedMove);
+  await txn.wait();
 
   return { hashedMove, salt };
 };
@@ -113,8 +113,10 @@ const revealMove = async <
   move: number,
   salt: string
 ) => {
-  await player.RPSInstance.revealMove(move, salt);
+  const txn: ContractTransaction = await player.RPSInstance.revealMove(move, salt);
+  await txn.wait();
 };
+
 const submitMovesAndReveal = async <
   T extends {
     [contractName: string]: Contract | RockPaperScissorsInstance | RpsToken;
@@ -427,7 +429,7 @@ describe("RockPaperScissorsInstance Tests", () => {
       const { deployer, RPSInstance } = await setup(true);
       await submitMove(deployer, 0);
       await deployer.RPSInstance.incentivizeUser();
-      await new Promise((r) => setTimeout(r, 2000));
+      await hre.network.provider.send("evm_increaseTime", [3600001]);
       await expect(deployer.RPSInstance.incentivizeUser()).to.emit(
         RPSInstance,
         "WithdrawFunds"
