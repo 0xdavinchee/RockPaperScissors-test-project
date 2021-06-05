@@ -96,6 +96,11 @@ contract RockPaperScissorsInstance is Initializable {
                 (msg.sender == playerB && playerDataMap[playerB].move[0] == 0),
             "You cannot change your move."
         );
+        require(
+            incentiveStartTime == 0 ||
+                (block.timestamp - incentiveStartTime) <= 1 hours,
+            "You were being uncooperative."
+        );
 
         if (incentiveStartTime != 0) {
             incentiveStartTime = 0;

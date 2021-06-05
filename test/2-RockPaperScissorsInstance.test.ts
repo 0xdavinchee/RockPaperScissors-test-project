@@ -98,7 +98,9 @@ const submitMove = async <
   move: number
 ) => {
   const { hashedMove, salt } = await getHashedMove(move);
-  const txn: ContractTransaction = await player.RPSInstance.submitMove(hashedMove);
+  const txn: ContractTransaction = await player.RPSInstance.submitMove(
+    hashedMove
+  );
   await txn.wait();
 
   return { hashedMove, salt };
@@ -113,7 +115,10 @@ const revealMove = async <
   move: number,
   salt: string
 ) => {
-  const txn: ContractTransaction = await player.RPSInstance.revealMove(move, salt);
+  const txn: ContractTransaction = await player.RPSInstance.revealMove(
+    move,
+    salt
+  );
   await txn.wait();
 };
 
@@ -354,13 +359,12 @@ describe("RockPaperScissorsInstance Tests", () => {
     });
   });
 
-
   describe("Withdraw Tests", () => {
     it("Player should not be able to withdraw before game starts if game has started.", async () => {
       const { deployer } = await setup(true);
-      await expect(deployer.RPSInstance.withdrawBeforeGameStarts()).to.be.revertedWith(
-        "You can't withdraw once the game has started."
-      );
+      await expect(
+        deployer.RPSInstance.withdrawBeforeGameStarts()
+      ).to.be.revertedWith("You can't withdraw once the game has started.");
     });
 
     it("Winner should be able to withdraw.", async () => {
@@ -395,23 +399,25 @@ describe("RockPaperScissorsInstance Tests", () => {
       const { deployer } = await setup(true);
       await submitMove(deployer, 0);
       await deployer.RPSInstance.incentivizeUser();
-      expect((await deployer.RPSInstance.incentiveStartTime()).toNumber()
+      expect(
+        (await deployer.RPSInstance.incentiveStartTime()).toNumber()
       ).to.not.eql(0);
     });
 
     it("Player should not be able to incentivize if they haven't made a move.", async () => {
       const { deployer } = await setup(true);
-      await expect(
-        deployer.RPSInstance.incentivizeUser()
-      ).to.be.revertedWith("You are not allowed to incentivize your opponent.");
+      await expect(deployer.RPSInstance.incentivizeUser()).to.be.revertedWith(
+        "You are not allowed to incentivize your opponent."
+      );
     });
 
     it("Player should not be able to incentivize cooperative opponent.", async () => {
       const { deployer, players } = await setup(true);
       await submitMove(deployer, 0);
       await submitMove(players[0], 1);
-      await expect(deployer.RPSInstance.incentivizeUser()
-      ).to.be.revertedWith("You are not allowed to incentivize your opponent.");
+      await expect(deployer.RPSInstance.incentivizeUser()).to.be.revertedWith(
+        "You are not allowed to incentivize your opponent."
+      );
     });
 
     it("Opponent can become cooperative.", async () => {
@@ -419,17 +425,21 @@ describe("RockPaperScissorsInstance Tests", () => {
       await submitMove(deployer, 0);
       await deployer.RPSInstance.incentivizeUser();
       await submitMove(players[0], 1);
-      expect((await deployer.RPSInstance.incentiveStartTime()).toNumber()).to.eql(
-        0
-      );
+      expect(
+        (await deployer.RPSInstance.incentiveStartTime()).toNumber()
+      ).to.eql(0);
     });
 
-    // use evm_increase_time
     it("Player should be able to withdraw funds once time condition is met.", async () => {
-      const { deployer, RPSInstance } = await setup(true);
+      const { deployer, RPSInstance, players } = await setup(true);
       await submitMove(deployer, 0);
       await deployer.RPSInstance.incentivizeUser();
       await hre.network.provider.send("evm_increaseTime", [3600001]);
+
+      const { hashedMove: playerHashedMove } = await getHashedMove(0);
+      await expect(
+        players[0].RPSInstance.submitMove(playerHashedMove)
+      ).to.be.revertedWith("You were being uncooperative.");
       await expect(deployer.RPSInstance.incentivizeUser()).to.emit(
         RPSInstance,
         "WithdrawFunds"
@@ -452,9 +462,7 @@ describe("RockPaperScissorsInstance Tests", () => {
       const { deployer, players, RPSInstance } = await setup(true);
       await submitMovesAndReveal(deployer, players[0], 0, 2);
       await RPSInstance.withdrawWinnings();
-      await expect(
-        RPSInstance.startRematch(INITIAL_BET_AMOUNT)
-      )
+      await expect(RPSInstance.startRematch(INITIAL_BET_AMOUNT))
         .to.emit(RPSInstance, "RematchRequested")
         .withArgs(deployer.address, INITIAL_BET_AMOUNT);
     });
@@ -463,9 +471,7 @@ describe("RockPaperScissorsInstance Tests", () => {
       const { deployer, players, RPSInstance } = await setup(true);
       await submitMovesAndReveal(deployer, players[0], 0, 1);
       await players[0].RPSInstance.withdrawWinnings();
-      await expect(
-        RPSInstance.startRematch(INITIAL_BET_AMOUNT * 2)
-      )
+      await expect(RPSInstance.startRematch(INITIAL_BET_AMOUNT * 2))
         .to.emit(RPSInstance, "RematchRequested")
         .withArgs(deployer.address, INITIAL_BET_AMOUNT * 2);
     });
@@ -527,7 +533,9 @@ describe("RockPaperScissorsInstance Tests", () => {
       const { deployer, players, RPSInstance, RPSToken } = await setup(true);
       await submitMovesAndReveal(deployer, players[0], 0, 2);
       await deployer.RPSInstance.startRematchWithWinnings();
-      const winningsBet = (await RPSToken.balanceOf(RPSInstance.address)).toNumber();
+      const winningsBet = (
+        await RPSToken.balanceOf(RPSInstance.address)
+      ).toNumber();
 
       await approveTokenAndDepositBet(players[0], winningsBet);
       await submitMovesAndReveal(deployer, players[0], 0, 1);
